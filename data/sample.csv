@@ -1,0 +1,14 @@
+id;isbn;title;year;author
+B-001;978-0132350884;Clean Code;2008;Robert C. Martin
+B-002;978-0201633610;Design Patterns;1994;Erich Gamma
+B-003;978-0134494166;Clean Architecture;2017;Robert C. Martin
+B-004;978-0321125217;Domain-Driven Design;2003;Eric Evans
+B-005;978-0596007126;Head First Design Patterns;2004;Eric Freeman
+B-006;978-1491950357;Building Microservices;2015;Sam Newman
+B-007;978-0131103627;The C Programming Language;1988;Brian Kernighan
+B-008;978-0735619678;Code Complete;2004;Steve McConnell
+B-009;978-1617294532;Dependency Injection Principles;2019;Mark Seemann
+B-010;978-1491987650;Designing Data-Intensive Applications;2017;Martin Kleppmann
+B-011;978-1111111111;Зламана книга 1;невідомий;Автор
+B-012;978-2222222222;;2020;Автор Без Назви
+B-013;978-3333333333;Лише три колонки

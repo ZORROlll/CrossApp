@@ -1,0 +1,7 @@
+[
+  { "id": "B-101", "isbn": "978-0132350884", "title": "Clean Code", "year": 2008, "author": "Robert C. Martin" },
+  { "id": "B-102", "isbn": "978-0201633610", "title": "Design Patterns", "year": 1994, "author": "Erich Gamma" },
+  { "id": "B-103", "isbn": "978-0134494166", "title": "Clean Architecture", "year": 2017, "author": "Robert C. Martin" },
+  { "id": "B-104", "isbn": "978-0000000000", "title": "", "year": 2020 },
+  { "id": "B-105", "isbn": "978-1111111111", "title": "Старовинний фоліант", "year": 1200 }
+]
