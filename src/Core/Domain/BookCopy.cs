@@ -3,9 +3,9 @@ using Core.Dto;
 namespace Core.Domain;
 
 public sealed class BookCopy
-{
-    private bool _isIssued;
-
+{ //зберігає конкретне значення чи стан
+    private bool _isIssued; //приватне поле для інкапсуляції стану, ця змінна може змінювати тільки цей клас
+                            //поле private ми можемо змінювати стан об'єкта тільки за допомогою спеціальних методів
     public string Id { get; }
     public string Isbn { get; }
     public string Title { get; }
@@ -13,7 +13,7 @@ public sealed class BookCopy
     public string? Author { get; }
     public bool IsIssued => _isIssued;
 
-    // Приватний конструктор: забороняє створення в обхід фабрики
+    //записує початкові значення об'єкта, забороняє створення об'єкта через new в обхід перевірок
     private BookCopy(string id, string isbn, string title, int year, string? author, bool isIssued)
     {
         Id = id;
@@ -53,16 +53,16 @@ public sealed class BookCopy
                 $"Рік видання має бути в межах від 1 до {maxValidYear}");
         }
 
-        return new BookCopy(id.Trim(), isbn.Trim().ToUpperInvariant(), title.Trim(), year, author?.Trim(), isIssued);
+        return new BookCopy(id.Trim(), isbn.Trim().ToUpperInvariant(), title.Trim(), year, author?.Trim(), isIssued); //виклик приватного контструктора
     }
 
     // Бізнес-метод: видача примірника
-    public void Issue()
+    public void Issue() //доменний метод зміни стану для сутності BookCopy
     {
-        if (_isIssued)
-            throw new InvalidOperationException($"Примірник {Id} ('{Title}') уже виданий, повторна видача неможлива");
+        if (_isIssued) //_isIssued вик. суто всередині цього класу, і показує чи видана книга
+            throw new InvalidOperationException($"Примірник {Id} ('{Title}') уже виданий, повторна видача неможлива");//виклик методу є неприпустимим через поточний стан об'єкта
 
-        _isIssued = true;
+        _isIssued = true; //видана 
     }
 
     // Бізнес-метод: повернення примірника
@@ -74,18 +74,18 @@ public sealed class BookCopy
         _isIssued = false;
     }
 
-    // Мапінг сутності в DTO
+    // Мапінг сутності в DTO, BookDto - просто містить лише голі поля/властивості - id...
     public BookDto ToDto() => new(Id, Isbn, Title, Year, Author);
 
     // Відновлення сутності з DTO з проходженням усіх інваріантів
-    public static BookCopy FromDto(BookDto dto)
+    public static BookCopy FromDto(BookDto dto) //вхідний параметр: об'єкт із сирими даними.
     {
         if (dto is null)
-            throw new ArgumentNullException(nameof(dto), "DTO не може бути null");
+            throw new ArgumentNullException(nameof(dto), "DTO не може бути null");//nameof повертає точне ім'я змінної як рядок  без помилок у назвах
 
-        return Create(dto.Id, dto.Isbn, dto.Title, dto.Year, dto.Author);
+        return Create(dto.Id, dto.Isbn, dto.Title, dto.Year, dto.Author);//перевіряє чи не порожній title
     }
 
     public override string ToString() =>
         $"{Id} [{Isbn}] \"{Title}\" ({Year} р., {Author ?? "Автор невідомий"}) - Стан: {(_isIssued ? "На руках" : "В наявності")}";
-}
+} 

@@ -1,12 +1,17 @@
-﻿using System.Text;
+﻿using System.Diagnostics;
+using System.Text;
+using Core;
+using Core.Abstractions;
 using Core.Domain;
 using Core.Dto;
 using Core.Import;
+using Core.Services;
+using Core.Storage;
 
 Console.OutputEncoding = Encoding.UTF8;
 
-// Імпорт даних із файлу (Лабораторна 3 + Додаткове 1)
-string path = args.Length > 0 ? args[0] : Path.Combine("data", "mixed.csv");
+// ==================== ІМПОРТ ДАНИХ ІЗ ФАЙЛУ ====================
+string path = args.FirstOrDefault(a => !a.StartsWith("--")) ?? Path.Combine("data", "mixed.csv");
 
 if (File.Exists(path))
 {
@@ -41,7 +46,6 @@ if (File.Exists(path))
         Console.WriteLine($"Пропущено записів на етапі парсингу: {result.Errors.Count}");
     }
 
-    // Трансляція сирих даних у доменні сутності (Додаткове завдання 1)
     DomainImportResult<BookCopy> domainResult = BookImportProcessor.ToDomainEntities(result);
 
     Console.WriteLine($"Створено доменних сутностей: {domainResult.Entities.Count}");
@@ -140,6 +144,80 @@ TryDo("перевищення ліміту видач читача (>5)", () =>
         activeLoansList,
         DateTime.UtcNow);
 });
+Console.WriteLine();
+
+// ==================== РОБОТА ЗІ СХОВИЩЕМ ТА СЕРВІСОМ (COMPOSITION ROOT) ====================
+Console.WriteLine("=== Робота з каталогом примірників ===");
+
+// Створення сховища делеговано фабриці StoreFactory (Додаткове завдання 3)
+IBookStore store = StoreFactory.Create(args);
+var service = new LendingService(store);
+
+Console.WriteLine($"Активне сховище (через StoreFactory): {store.GetType().Name}");
+
+var created = service.AddBook("BC-101", "978-0132350884", "Clean Architecture", 2017, "Robert Martin");
+service.IssueCopy(created.Id);
+
+foreach (var b in service.All())
+{
+    string status = b.IsIssued ? "Видана" : "В наявності";
+    Console.WriteLine($" {b.Id,-8} {b.Isbn,-16} {b.Title,-22} {b.Year,5} [{status}]");
+}
+
+// ==================== ДОДАТКОВЕ ЗАВДАННЯ 1: ДЕКОРАТОР ====================
+Console.WriteLine("\n=== Демонстрація роботи CachingBookStore ===");
+Console.WriteLine("1. Перший пошук (читання з базового сховища та збереження в кеш):");
+var firstRead = service.Find("BC-101");
+Console.WriteLine($"   Знайдено: {firstRead?.Title}");
+
+Console.WriteLine("2. Другий пошук (миттєве повернення екземпляра з кешу):");
+var cachedRead = service.Find("BC-101");
+Console.WriteLine($"   Знайдено з кешу: {cachedRead?.Title}");
+Console.WriteLine($"   Один і той самий об'єкт у пам'яті: {ReferenceEquals(firstRead, cachedRead)}");
+
+// ==================== ДОДАТКОВЕ ЗАВДАННЯ 2: ПОШУК З ПАРАМЕТРОМ Func ====================
+Console.WriteLine("\n=== Демонстрація пошуку за предикатом (Func<BookCopy, bool>) ===");
+
+Console.WriteLine("1. Пошук книг автора 'Martin':");
+var byAuthor = service.Search(b => b.Author?.Contains("Martin", StringComparison.OrdinalIgnoreCase) == true);
+foreach (var b in byAuthor)
+{
+    Console.WriteLine($"   -> [{b.Year}] {b.Title} ({b.Author})");
+}
+
+Console.WriteLine("2. Пошук сучасних книг (рік >= 2015):");
+var modernBooks = service.Search(b => b.Year >= 2015);
+foreach (var b in modernBooks)
+{
+    string status = b.IsIssued ? "Видана" : "В наявності";
+    Console.WriteLine($"   -> [{b.Year}] {b.Title} [{status}]");
+}
+
+// ==================== СЦЕНАРІЇ ВІДМОВИ ====================
+Console.WriteLine("\n=== Сценарії відмови (обробка винятків) ===");
+
+// 1. Спроба видачі примірника з неіснуючим ID
+try
+{
+    string nonExistentId = "BC-99999";
+    Console.WriteLine($"Спроба видачі книги з неіснуючим ID '{nonExistentId}'...");
+    service.IssueCopy(nonExistentId);
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($" [Очікувана помилка]: {ex.Message}");
+}
+
+// 2. Спроба додати примірник із дублікатом ID
+try
+{
+    Console.WriteLine($"Спроба повторного додавання книги з існуючим ID '{created.Id}'...");
+    service.AddBook(created.Id, "978-0000000000", "Duplicate Book", 2024, "Unknown");
+}
+catch (InvalidOperationException ex)
+{
+    Console.WriteLine($" [Очікувана помилка]: {ex.Message}");
+}
 
 // Допоміжний метод перехоплення помилок
 static void TryDo(string title, Action action)
