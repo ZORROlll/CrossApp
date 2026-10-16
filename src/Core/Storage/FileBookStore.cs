@@ -5,7 +5,7 @@ using Core.Abstractions;
 using Core.Domain;
 using Core.Dto;
 
-public sealed class FileBookStore(string path) : IBookStore
+public sealed class FileBookStore : IBookStore
 {
     // Статичні налаштування JSON: однаковий формат для всіх екземплярів, читабельний відступ
     private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
@@ -13,11 +13,43 @@ public sealed class FileBookStore(string path) : IBookStore
     // Внутрішній кеш примірників у пам'яті (порівняння Id без урахування регістру)
     private readonly Dictionary<string, BookCopy> _cache = new(StringComparer.OrdinalIgnoreCase);
 
-    // Повний нормалізований шлях до файлу збереження
-    private readonly string _path = Path.GetFullPath(path);
+    // Повний нормалізований шлях до поточного файлу збереження
+    private string _path;
 
     // Прапорець для запобігання повторному зчитуванню з диска
     private bool _loaded;
+
+    public FileBookStore(string path = "catalog.json")
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        _path = Path.GetFullPath(path);
+    }
+
+    // Властивість для перегляду або динамічної зміни шляху через прапорець
+    public string FilePath
+    {
+        get => _path;
+        set
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(value);
+            var normalized = Path.GetFullPath(value);
+
+            // Якщо шлях змінився — оновлюємо його і скидаємо стан кешу для нового файлу
+            if (!string.Equals(_path, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                _path = normalized;
+                Reload();
+            }
+        }
+    }
+
+    // Примусове перезавантаження кешу з диска
+    public void Reload()
+    {
+        _cache.Clear();
+        _loaded = false;
+        EnsureLoaded();
+    }
 
     // Завантажує дані з JSON-файлу у пам'ять лише під час першого звернення
     private void EnsureLoaded()
@@ -43,7 +75,11 @@ public sealed class FileBookStore(string path) : IBookStore
     private void Flush()
     {
         // Створення каталогу (якщо ще не існує) перед записом файлу
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        var directory = Path.GetDirectoryName(_path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
 
         var dtos = _cache.Values.Select(b => b.ToDto()).ToList();
         File.WriteAllText(_path, JsonSerializer.Serialize(dtos, Options));
@@ -97,7 +133,7 @@ public sealed class FileBookStore(string path) : IBookStore
         return true;
     }
 
-    // Додаткове завдання 2: пошук за предикатом над кешем
+    // Пошук за предикатом над кешем
     public IReadOnlyList<BookCopy> Find(Func<BookCopy, bool> predicate)
     {
         ArgumentNullException.ThrowIfNull(predicate);

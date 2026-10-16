@@ -9,7 +9,7 @@ public sealed class InMemoryBookStore(IEnumerable<BookCopy>? seed = null) : IBoo
     // StringComparer.OrdinalIgnoreCase забезпечує нечутливість до регістру ідентифікатора
     private readonly Dictionary<string, BookCopy> _items =
         (seed ?? []).ToDictionary(b => b.Id, StringComparer.OrdinalIgnoreCase);
-
+//seed первинне наповнення програми або бази даних тестовими записами при старті, щоб система не була порожньою. 
     // Повертає список як IReadOnlyList, щоб унеможливити зміну колекції напряму
     public IReadOnlyList<BookCopy> List() => _items.Values.ToList();
 

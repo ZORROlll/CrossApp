@@ -1,25 +1,19 @@
 namespace Core.Abstractions;
 
 using Core.Domain;
-
+//інтерфейс IBookStore описує контракт взаємодії зі сховищем книг
 public interface IBookStore
 {
-    // Отримання списку всіх примірників
-    // IReadOnlyList захищає колекцію від змін в обхід методів сховища
-    IReadOnlyList<BookCopy> List();
+    IReadOnlyList<BookCopy> List();   // Отримання списку всіх примірників
 
-    // Пошук за ідентифікатором; повертає nullable (BookCopy?), бо запису може не бути
-    BookCopy? GetById(string id);
+    BookCopy? GetById(string id);   // Пошук за ідентифікатором; повертає nullable (BookCopy?), бо запису може не бути
 
-    // Додавання нового примірника до сховища
-    void Add(BookCopy item);
+    void Add(BookCopy item); //додай новий примірник до сховища
 
-    // Оновлення стану примірника
-    void Update(BookCopy item);
+    void Update(BookCopy item); //оновлює стан
 
-    // Видалення примірника за Id
-    bool Remove(string id);
+    bool Remove(string id);     // Видалення примірника за Id
 
-    // Додаткове завдання 2: пошук за довільним предикатом
-    IReadOnlyList<BookCopy> Find(Func<BookCopy, bool> predicate);
+    // (д2)
+    IReadOnlyList<BookCopy> Find(Func<BookCopy, bool> predicate); //виконує гнучкий пошук книг за довільною умовою за допомогою делегата
 }

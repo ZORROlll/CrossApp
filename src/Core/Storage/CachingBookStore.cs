@@ -6,14 +6,16 @@ using Core.Domain;
 /// <summary>
 /// Декоратор для сховища книг, що додає проміжне кешування в оперативній пам'яті.
 /// </summary>
-public sealed class CachingBookStore : IBookStore
+public sealed class CachingBookStore : IBookStore // Клас-декоратор кешування, що реалізує контракт інтерфейсу IBookStore
 {
-    private readonly IBookStore _inner;
-    private readonly Dictionary<string, BookCopy> _cache = new(StringComparer.OrdinalIgnoreCase);
-
+    private readonly IBookStore _inner; // Посилання на базове сховище, яке огортає декоратор
+    //_inner — це поле класу, _ Lля внутрішніх закритих полів класу
+    //Внутрішній кеш примірників у пам'яті (хеш-таблиця) з ігноруванням регістру ідентифікаторів 
+    private readonly Dictionary<string, BookCopy> _cache = new(StringComparer.OrdinalIgnoreCase); //зберігає дані у вигляді пар «ключ — значення» за принципом хеш-таблиці.
+                                                                //створення нового екземпляра словника з передачею правила порівняння рядків без урахування регістру.
     public CachingBookStore(IBookStore inner)
-    {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+    {           //значення вхідного параметра inner
+        _inner = inner ?? throw new ArgumentNullException(nameof(inner)); //
     }
 
     // Читання списку: заповнює кеш отриманими сутностями

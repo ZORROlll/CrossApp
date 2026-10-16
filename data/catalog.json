@@ -1,0 +1,37 @@
+[
+  {
+    "Id": "BC-101",
+    "Isbn": "978-0132350884",
+    "Title": "Clean Architecture",
+    "Year": 2017,
+    "Author": "Robert Martin"
+  },
+  {
+    "Id": "799eb192",
+    "Isbn": "978-0321125217",
+    "Title": "Patterns of Enterprise Architecture",
+    "Year": 2002,
+    "Author": "Martin Fowler"
+  },
+  {
+    "Id": "06aa8b71",
+    "Isbn": "978-0131103627",
+    "Title": "The C Programming Language",
+    "Year": 1988,
+    "Author": "Brian Kernighan"
+  },
+  {
+    "Id": "861a7a39",
+    "Isbn": "978-0321125217",
+    "Title": "Patterns of Enterprise Architecture",
+    "Year": 2002,
+    "Author": "Martin Fowler"
+  },
+  {
+    "Id": "fdbc40cf",
+    "Isbn": "978-0131103627",
+    "Title": "The C Programming Language",
+    "Year": 1988,
+    "Author": "Brian Kernighan"
+  }
+]

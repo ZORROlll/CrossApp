@@ -11,8 +11,10 @@ public sealed record DomainImportResult<TEntity>(
 
 public static class BookImportProcessor
 {
-    // Метод приймає результат з тижня 3 та повертає чисті доменні сутності та список відхилених рядків
-    public static DomainImportResult<BookCopy> ToDomainEntities(ImportResult<object> importResult)
+    // Метод приймає результат з тижня 3 та Action<string> для сповіщення про пропущені рядки в момент їх виявлення
+    public static DomainImportResult<BookCopy> ToDomainEntities(
+        ImportResult<object> importResult,
+        Action<string>? onSkipped = null)
     {
         if (importResult is null)
             throw new ArgumentNullException(nameof(importResult), "Результат імпорту не може бути null");
@@ -20,25 +22,32 @@ public static class BookImportProcessor
         var validEntities = new List<BookCopy>();
         var invariantErrors = new List<string>();
 
-        // Переносимо помилки рівня парсингу файлу, якщо вони вже були
-        invariantErrors.AddRange(importResult.Errors);
+        // 1. Помилки етапу парсингу файлу
+        foreach (var parseError in importResult.Errors)
+        {
+            invariantErrors.Add(parseError);
+            onSkipped?.Invoke($"[Пропущено на етапі парсингу]: {parseError}");
+        }
 
-        // Обробляємо кожен успішно розпарсений об'єкт
+        // 2. Обробка кожного успішно розпарсеного об'єкта
         foreach (object item in importResult.Items)
         {
             if (item is BookDto bookDto)
             {
                 try
                 {
-                    // Спроба відновити сутність через FromDto (проходить усі інваріанти Create)
+                    // Спроба відновити сутність через FromDto (перевірка інваріантів)
                     BookCopy entity = BookCopy.FromDto(bookDto);
                     validEntities.Add(entity);
                 }
                 catch (Exception ex)
                 {
-                    // Якщо сутність відмовилася створюватися — фіксуємо рядок та правило, що зламалося
-                    invariantErrors.Add(
-                        $"Запис книги [Id: '{bookDto.Id}', ISBN: '{bookDto.Isbn}'] відхилено доменом: {ex.Message}");
+                    // Фіксація порушення інваріантів доменної сутності
+                    var errorMessage = $"Запис книги [Id: '{bookDto.Id}', ISBN: '{bookDto.Isbn}'] відхилено доменом: {ex.Message}";
+                    invariantErrors.Add(errorMessage);
+
+                    // Миттєвий звіт через делегат Action<string>
+                    onSkipped?.Invoke($"[Пропущено через інваріант]: {errorMessage}");
                 }
             }
         }
