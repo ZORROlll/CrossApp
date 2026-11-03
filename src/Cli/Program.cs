@@ -9,8 +9,72 @@ using Core.Events;
 using Core.Import;
 using Core.Services;
 using Core.Storage;
+using Core.Data;
 
 Console.OutputEncoding = Encoding.UTF8;
+
+// ==================== ОБРОБКА ПІДКОМАНД ЗВІТІВ ====================
+string subCmd = args.FirstOrDefault(a => !a.StartsWith("--"))?.ToLowerInvariant() ?? "";
+
+if (subCmd is "report-low" or "report-top" or "report-groups" or "report-totals")
+{
+    var reportBooks = SampleData.Books();
+
+    if (subCmd == "report-low")
+    {
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine("ЗВІТ: ВИДАННЯ, СТАРІШІ ЗА 2000 РІК (report-low)");
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine($" {"ISBN",-16} | {"Назва книги",-28} | {"Автор",-20} | {"Рік"}");
+        Console.WriteLine(new string('-', 78));
+        var older = Core.Reports.ReportService.OlderThan(reportBooks, 2000);
+        foreach (var b in older)
+            Console.WriteLine($" {b.Isbn,-16} | {b.Title,-28} | {b.Author,-20} | {b.Year}");
+        Console.WriteLine(new string('-', 78));
+        Console.WriteLine($"Всього знайдено: {older.Count} запис(ів).\n");
+    }
+    else if (subCmd == "report-top")
+    {
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine("ЗВІТ: ТОП НАЙНОВІШИХ ВИДАНЬ (report-top)");
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine($" {"ISBN",-16} | {"Назва книги",-28} | {"Автор",-20} | {"Рік"}");
+        Console.WriteLine(new string('-', 78));
+        var top = Core.Reports.ReportService.TopNewest(reportBooks, 5);
+        foreach (var b in top)
+            Console.WriteLine($" {b.Isbn,-16} | {b.Title,-28} | {b.Author,-20} | {b.Year}");
+        Console.WriteLine(new string('-', 78));
+        Console.WriteLine($"Всього у топі: {top.Count} запис(ів).\n");
+    }
+    else if (subCmd == "report-groups")
+    {
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine("ЗВІТ: РОЗПОДІЛ КНИГ ЗА АВТОРАМИ (report-groups)");
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine($" {"Автор",-30} | {"Кількість книг"}");
+        Console.WriteLine(new string('-', 78));
+        var groups = Core.Reports.ReportService.ByAuthor(reportBooks);
+        foreach (var g in groups)
+            Console.WriteLine($" {g.Key,-30} | {g.Count}");
+        Console.WriteLine(new string('-', 78));
+        Console.WriteLine($"Всього унікальних авторів: {groups.Count}.\n");
+    }
+    else if (subCmd == "report-totals")
+    {
+        Console.WriteLine("==============================================================================");
+        Console.WriteLine("ЗВІТ: ЗАГАЛЬНІ АГРЕГОВАНІ ПОКАЗНИКИ (report-totals)");
+        Console.WriteLine("==============================================================================");
+        var tRes = Core.Reports.ReportService.Totals(reportBooks);
+        Console.WriteLine($" Загальна кількість примірників : {tRes.Items}");
+        Console.WriteLine($" Середній рік видання          : {tRes.AverageYear:F1}");
+        Console.WriteLine($" Найдавніший рік видання       : {tRes.MinYear}");
+        Console.WriteLine($" Найсвіжіший рік видання       : {tRes.MaxYear}");
+        Console.WriteLine("==============================================================================\n");
+    }
+
+    return 0; // Завершуємо роботу підкоманди, не запускаючи повний пайплайн
+}
+
 
 // ==================== ЗЧИТУВАННЯ АРГУМЕНТІВ ====================
 // Шукаємо прапорець --file
@@ -35,10 +99,18 @@ if (File.Exists(importPath))
 
     ImportResult<object> result = extension switch
     {
-        ".csv" => BookCsvImporter.Load(importPath),
+        // 1. Передаємо лямбду (Action) у BookCsvImporter.Load
+        ".csv" => BookCsvImporter.Load(importPath, skipped =>
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"[Пропущено рядок {skipped.LineNumber}] {skipped.Reason} | Дані: \"{skipped.RawLine}\"");
+            Console.ResetColor();
+        }),
+
         ".json" => BookJsonImporter.Load(importPath) is var jsonRes
             ? new ImportResult<object>(jsonRes.Items.Cast<object>().ToList(), jsonRes.Errors)
             : new ImportResult<object>([], []),
+
         _ => new ImportResult<object>([], [$"Непідтримуване розширення '{extension}'. Дозволено: .csv, .json"])
     };
 
@@ -82,7 +154,6 @@ if (File.Exists(importPath))
 
     Console.WriteLine();
 }
-
 // ==================== СЦЕНАРІЇ РОБОТИ ====================
 
 Console.WriteLine("=== Сценарій 1: успішне створення та зміна стану сутності ===");
@@ -227,7 +298,7 @@ var cachedRead = service.Find("BC-101");
 Console.WriteLine($"   Знайдено з кешу: {cachedRead?.Title}");
 Console.WriteLine($"   Один і той самий об'єкт у пам'яті: {ReferenceEquals(firstRead, cachedRead)}");
 
-// ==================== ЗАВДАННЯ 2: ПОШУК З ПАРАМЕТРОМ Func ====================
+// ==================== ЗАВДАННЯ: ПОШУК З ПАРАМЕТРОМ Func ====================
 Console.WriteLine("\n=== Демонстрація пошуку за предикатом (Func<BookCopy, bool>) ===");
 
 Console.WriteLine("1. Пошук книг автора 'Martin':");
@@ -236,7 +307,8 @@ foreach (var b in byAuthor)
 {
     Console.WriteLine($"   -> [{b.Year}] {b.Title} ({b.Author})");
 }
-
+// Пошук примірників за умовою: рік видання >= 2010
+// Використовується предикат Func<BookCopy, bool> у формі лямбда-виразу
 Console.WriteLine("2. Пошук сучасних книг (рік >= 2015):");
 var modernBooks = service.Search(b => b.Year >= 2015);
 foreach (var b in modernBooks)
@@ -285,7 +357,7 @@ Console.WriteLine("\n=== Доменні події, делегати Action/Func
 var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "app.log");
 Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
 
-// Локальний метод підписника (щоб згодом відписатися через -=)
+// Локальний метод підписника (щоб згодом відписатися через -=). перший підписник
 void OnLendingChanged(object? sender, LendingChangedEventArgs e)
 {
     string details = e.Kind switch
@@ -302,11 +374,13 @@ void OnLendingChanged(object? sender, LendingChangedEventArgs e)
 }
 
 // Підписка першого обробника
-service.Changed += OnLendingChanged;
+service.Changed += OnLendingChanged; //+= бере адресу методу OnLendingChanged 
+                                     //і додає її до внутрішнього списку викликів (InvocationList) події Changed
 
-// Крок 4: Другий підписник — лямбда із замиканням над лічильником changes
+//  Другий підписник — лямбда із замиканням над лічильником changes
 int changes = 0;
-service.Changed += (_, _) => changes++;
+//оператор, що бере делегат і додає його другим у чергу викликів (InvocationList) події
+service.Changed += (_, _) => changes++; //реєстрація другого підписника, зовнішня змінна changes
 
 // Крок 5: Демонстраційний сценарій у Cli
 var createdBook = service.AddBook("978-0321125217", "Patterns of Enterprise Architecture", 2002, "Martin Fowler");
@@ -316,25 +390,25 @@ service.ReturnCopy(createdBook.Id);
 Console.WriteLine($"Подій отримано: {changes}");
 
 // Керована відписка першого обробника
-service.Changed -= OnLendingChanged;
+service.Changed -= OnLendingChanged; // Відписка іменованого обробника: видаляє метод зі списку викликів (InvocationList) для запобігання витоку пам'яті
 
 // Тиха операція: перший обробник мовчить, але дані змінюються і лямбда фіксує +1
-service.IssueCopy(createdBook.Id, "reader-99");
+service.IssueCopy(createdBook.Id, "reader-99"); //операцію видачі книги читачеві
 Console.WriteLine($"Подій отримано: {changes}"); // +1 лише від лямбди-лічильника
 
 // Крок 6: Сценарій відмови (порушення бізнес-правила)
-int beforeFailCount = changes;
+int beforeFailCount = changes; //запяматовує значення лічильника перед операцією
 try
 {
-    service.IssueCopy("non-existent-id", "reader-00");
+    service.IssueCopy("non-existent-id", "reader-00");//метод доменного сервісу для видачі примірника читачу
 }
-catch (InvalidOperationException ex)
+catch (Exception ex) // або KeyNotFoundException, залежно від реалізації в LendingService
 {
     Console.WriteLine($"[Очікувана помилка]: {ex.Message}");
 }
 
 // Перевірка інваріанта: події не було, лічильник не змінився
-if (changes == beforeFailCount)
+if (changes == beforeFailCount) // Перевіряємо, що лічильник не змінився і подія через помилку не спрацювала
 {
     Console.WriteLine("Перевірка пройдена: при винятку подія не виникла.");
 }
@@ -358,7 +432,7 @@ var compositeSink = new CompositeNotificationSink(
 
 // Створення сервісу з передачею INotificationSink через конструктор (ручний DI)
 var sinkService = new LendingService(store, compositeSink);
-var sinkBook = sinkService.AddBook("978-0131103627", "The C Programming Language", 1988, "Brian Kernighan");
+var sinkBook = sinkService.AddBook("978-0131103627", "The C Programming Language", 1988, "Brian Kernighan");//
 sinkService.IssueCopy(sinkBook.Id, "student-01");
 
 // Допоміжний метод перехоплення помилок
@@ -374,5 +448,149 @@ static void TryDo(string title, Action action)
         Console.WriteLine($" {title}: {ex.GetType().Name} — {ex.Message}");
     }
 }
+
+// --- Демо відкладеного виконання (Крок 3) ---
+var demoList = new List<Core.Domain.BookCopy>
+{
+    Core.Domain.BookCopy.Create("d1", "978-001", "Кобзар", 1840, "Тарас Шевченко"),
+    Core.Domain.BookCopy.Create("d2", "978-002", "Тіні забутих предків", 1911, "Михайло Коцюбинський")
+};
+
+var query = demoList.Where(b => b.Year < 1920);
+Console.WriteLine($"[ДЕМО] До змін: {query.Count()}");
+
+demoList.Add(Core.Domain.BookCopy.Create("d3", "978-003", "Лісова пісня", 1911, "Леся Українка"));
+Console.WriteLine($"[ДЕМО] Після змін: {query.Count()}");
+
+var snapshot = query.ToList();
+demoList.Clear();
+Console.WriteLine($"[ДЕМО] У знімку лишилось: {snapshot.Count}\n");
+
+
+// --- Звіти через LINQ (Крок 4) ---
+var books = service.All();
+
+Console.WriteLine("=== ТОП-5 НАЙНОВІШИХ ВИДАНЬ ===");
+foreach (var b in Core.Reports.ReportService.TopNewest(books, 5))
+{
+    Console.WriteLine($" {b.Isbn,-12} {b.Title,-26} {b.Year,5}  {b.Author}");
+}
+
+Console.WriteLine("\n=== ГРУПУВАННЯ ЗА АВТОРАМИ ===");
+foreach (var g in Core.Reports.ReportService.ByAuthor(books))
+{
+    Console.WriteLine($" {g.Key,-30} книг: {g.Count,3}");
+}
+
+Console.WriteLine("\n=== ПІДСУМКИ ===");
+var t = Core.Reports.ReportService.Totals(books);
+Console.WriteLine($" Всього: {t.Items}, Середній рік: {t.AverageYear:F1}, Найстаріша: {t.MinYear}, Найновіша: {t.MaxYear}");
+
+
+// ============================================================================
+//               ДОДАТКОВЕ ЗАВДАННЯ: ЗВЕДЕНИЙ ЗВІТ ЧЕРЕЗ LINQ JOIN
+// ============================================================================
+Console.WriteLine("\n" + new string('*', 78));
+Console.WriteLine(">>> ЗВЕДЕНИЙ ЗВІТ ВИДАЧ (LINQ JOIN) <<<");
+Console.WriteLine(new string('*', 78));
+
+// Отримуємо книги прямо з SampleData
+var loanBooks = Core.Data.SampleData.Books();
+
+// 1. Тестові читачі (ReaderDto)
+var demoReaders = new List<Core.Dto.ReaderDto>
+{
+    new("r1", "Іван Франко", "T-101"),
+    new("r2", "Леся Українка", "T-102")
+};
+
+// 2. Зв'язки видач (BookId -> ReaderId)
+var availableBooks = loanBooks.Take(2).ToList();
+var demoLoans = new List<(string BookId, string ReaderId)>();
+
+if (availableBooks.Count >= 2)
+{
+    demoLoans.Add((availableBooks[0].Id, "r1"));
+    demoLoans.Add((availableBooks[1].Id, "r2"));
+}
+
+// 3. Виклик Join у ReportService
+var loanReport = Core.Reports.ReportService.GetIssuedBooksWithReaders(loanBooks, demoReaders, demoLoans);
+
+Console.WriteLine($" {"Книга",-28} | {"ISBN",-16} | {"Читач",-18} | {"Квиток"}");
+Console.WriteLine(new string('-', 78));
+foreach (var row in loanReport)
+{
+    Console.WriteLine($" {row.BookTitle,-28} | {row.Isbn,-16} | {row.ReaderName,-18} | {row.TicketNumber}");
+}
+Console.WriteLine(new string('-', 78));
+Console.WriteLine("[INFO] Об'єднано дві колекції (Книги × Читачі) у зведений DTO BookLoanLine.");
+Console.WriteLine(new string('*', 78) + "\n");
+
+
+Console.WriteLine("\n=== ТОП-3 АВТОРИ (ВИКОРИСТАННЯ TopBy) ===");
+foreach (var author in Core.Reports.ReportService.TopAuthors(Core.Data.SampleData.Books(), 3))
+{
+    Console.WriteLine($" {author.Key,-30} | {author.Count} книг");
+}
+
+
+// Демонстрація синтаксису запитів (Query Syntax)
+Console.WriteLine("\n=== ЗВІТ ЗА АВТОРАМИ (QUERY SYNTAX) ===");
+foreach (var item in Core.Reports.ReportService.ByAuthorQuerySyntax(Core.Data.SampleData.Books()))
+{
+    Console.WriteLine($" {item.Key,-30} | {item.Count} книг");
+}
+
+
+// ============================================================================
+//               ДОДАТКОВЕ ЗАВДАННЯ: БЕНЧМАРК ЗВІТУ (STOPWATCH НА 100 000 ЗАПИСІВ)
+// ============================================================================
+Console.WriteLine("\n" + new string('*', 78));
+Console.WriteLine(">>> [БОНУС 4]: ТЕСТ ПРОДУКТИВНОСТІ LINQ (100 000 ЗАПИСІВ) <<<");
+Console.WriteLine(new string('*', 78));
+
+Console.Write("Генерація 100 000 тестових записів... ");
+var bigDataset = Enumerable.Range(1, 100_000)
+    .Select(i => Core.Domain.BookCopy.Create(
+        $"b_{i}",
+        $"978-{i:D6}",
+        $"Book Title {i}",
+        1950 + (i % 75),
+        $"Author {i % 500}"))
+    .ToList();
+Console.WriteLine("Готово.\n");
+
+// 0. Розігрів JIT (щоб перший тест не платив за компіляцію)
+_ = bigDataset.Where(b => b.Year > 2000).Take(10).ToList();
+
+var sw = new Stopwatch();
+
+// Варіант А: Чистий конвеєр (фільтрація + взяття перших 500 БЕЗ вивантаження всіх 66 тисяч у проміжний список)
+sw.Restart();
+var resultA = bigDataset
+    .Where(b => b.Year > 2000)
+    .Select(b => new { b.Title, b.Year })
+    .Take(500)
+    .ToList();
+sw.Stop();
+var timeWithoutIntermediateList = sw.ElapsedMilliseconds;
+
+// Варіант Б: Із зайвим ToList() посередині ланцюжка (змушує виділити пам'ять під ~66 000 елементів)
+sw.Restart();
+var resultB = bigDataset
+    .Where(b => b.Year > 2000)
+    .ToList() // <-- Примусова непотрібна матеріалізація всього списку!
+    .Select(b => new { b.Title, b.Year })
+    .Take(500)
+    .ToList();
+sw.Stop();
+var timeWithIntermediateList = sw.ElapsedMilliseconds;
+
+Console.WriteLine($" 1. Чистий конвеєр (без ToList посередині) : {timeWithoutIntermediateList,5} ms");
+Console.WriteLine($" 2. Із проміжним ToList() посередині       : {timeWithIntermediateList,5} ms");
+Console.WriteLine(new string('-', 78));
+Console.WriteLine($"[ВИСНОВОК]: Проміжний ToList() збільшив час виконання та навантаження на пам'ять.");
+Console.WriteLine(new string('*', 78) + "\n");
 
 return 0;

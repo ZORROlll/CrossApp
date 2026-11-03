@@ -4,59 +4,74 @@ using System.Globalization;
 
 namespace Core.Import;
 
+// 1. Модель даних для звіту про пропущений рядок
+public record SkippedRowDto(int LineNumber, string RawLine, string Reason);
+
 public static class BookCsvImporter
 {
-    
     private const char Separator = ';';
 
-    // Головний метод завантаження даних за шляхом до файлу
-    public static ImportResult<object> Load(string path)
+    // 2. Додаємо Action як необов'язковий параметр
+    public static ImportResult<object> Load(
+        string path, 
+        Action<SkippedRowDto>? onRowSkipped = null)
     {
-        var items = new List<object>();  // Список для успішно створених об'єктів (книг і читачів)
-        var errors = new List<string>(); // Список для повідомлень про помилки в рядках
+        var items = new List<object>();
+        var errors = new List<string>();
 
-        // Зчитуємо всі рядки файлу у масив із примусовим UTF-8 кодуванням
         string[] lines = File.ReadAllLines(path, Encoding.UTF8);
 
-        // Проходимо по кожному рядку файлу
         for (int i = 0; i < lines.Length; i++)
         {
-            int number = i + 1;       // Номер рядка для користувача (починається з 1, а не з 0)
-            string line = lines[i];   // Поточний текстовий рядок
+            int number = i + 1;
+            string line = lines[i];
 
-            // Пропускаємо порожні рядки або рядки-коментарі (що починаються з '#')
-            if (string.IsNullOrWhiteSpace(line) || line.StartsWith('#'))
+            // Пропуск порожніх рядків або коментарів
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                onRowSkipped?.Invoke(new SkippedRowDto(number, line, "Порожній рядок"));
                 continue;
+            }
 
-            // Пропускаємо перший рядок, якщо це заголовок таблиці (починається зі слова "type")
+            if (line.StartsWith('#'))
+            {
+                onRowSkipped?.Invoke(new SkippedRowDto(number, line, "Рядок-коментар"));
+                continue;
+            }
+
+            // Пропуск заголовка
             if (number == 1 && line.StartsWith("type", StringComparison.OrdinalIgnoreCase))
+            {
+                onRowSkipped?.Invoke(new SkippedRowDto(number, line, "Заголовок таблиці"));
                 continue;
+            }
 
-            // Перевіряємо результат парсингу рядка через pattern matching по типу
+            // Парсинг рядка
             switch (ParseLine(line))
             {
                 case ParseOk ok: 
                     items.Add(ok.Value);
                     break;
+
                 case ParseFailed failed: 
-                    errors.Add($"рядок {number}: {failed.Reason}");
+                    string errorMsg = $"рядок {number}: {failed.Reason}";
+                    errors.Add(errorMsg);
+                    
+                    // 3. Сповіщаємо про некоректний рядок через Action
+                    onRowSkipped?.Invoke(new SkippedRowDto(number, line, failed.Reason));
                     break;
             }
         }
 
-        // Повертаємо єдиний об'єкт із двома готовими списками
         return new ImportResult<object>(items, errors);
     }
 
-    // Допоміжний метод: розбирає один конкретний рядок на об'єкт або помилку
-   private static ParseOutcome ParseLine(string line)
+    private static ParseOutcome ParseLine(string line)
     {
         string[] parts = line.Split(Separator, StringSplitOptions.TrimEntries);
 
         return parts switch
         {
-
-
             ["B", _, "", _, ..] or ["B", _, _, "", ..] =>
                 new ParseFailed("[Книга] ISBN або назва книги порожні"),
 
@@ -72,7 +87,6 @@ public static class BookCsvImporter
             ["B", ..] =>
                 new ParseFailed($"[Книга] очікую 5-6 колонок, отримав {parts.Length}"),
 
-
             ["R", _, "", _] or ["R", _, _, ""] =>
                 new ParseFailed("[Читач] ПІБ читача або номер квитка порожні"),
 
@@ -82,19 +96,14 @@ public static class BookCsvImporter
             ["R", ..] =>
                 new ParseFailed($"[Читач] очікую 4 колонки (R;id;name;ticket), отримав {parts.Length}"),
 
-
             [var prefix, ..] =>
                 new ParseFailed($"невідомий тип запису з префіксом '{prefix}'"),
 
             _ => new ParseFailed("порожній рядок або невідомий формат")
         };
     }
-    // Базовий тип для повернення результату (успіх або помилка)
+
     private abstract record ParseOutcome;
-    
-    // Результат успіху: несе всередині створений об'єкт (книгу або читача)
     private sealed record ParseOk(object Value) : ParseOutcome;
-    
-    // Результат невдачі: несе всередині текстову причину помилки
     private sealed record ParseFailed(string Reason) : ParseOutcome;
 }

@@ -11,7 +11,7 @@ public sealed record DomainImportResult<TEntity>(
 
 public static class BookImportProcessor
 {
-    // Метод приймає результат з тижня 3 та Action<string> для сповіщення про пропущені рядки в момент їх виявлення
+    // Метод приймає результат з Action<string> для сповіщення про пропущені рядки в момент їх виявлення
     public static DomainImportResult<BookCopy> ToDomainEntities(
         ImportResult<object> importResult,
         Action<string>? onSkipped = null)

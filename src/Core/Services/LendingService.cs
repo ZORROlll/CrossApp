@@ -10,13 +10,15 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     private readonly INotificationSink? _sink = sink;
 
     // Подія сповіщення про зміну стану книги
-    public event EventHandler<LendingChangedEventArgs>? Changed;
+    public event EventHandler<LendingChangedEventArgs>? Changed; //
 
     // Приватний метод для безпечного підняття події та відправки в sink
     private void OnChanged(string copyId, LendingChangeKind kind, string? readerId = null, DateTimeOffset? dueDate = null)
     {
-        // Основна доменна подія (Лабораторна 6)
-        Changed?.Invoke(this, new LendingChangedEventArgs(copyId, kind, readerId, dueDate));
+        // Основна доменна подія (1) зміна стану
+        Changed?.Invoke(this, new LendingChangedEventArgs(copyId, kind, readerId, dueDate)); //бере внутрішній список підписників (InvocationList) 
+                                                             //і послідовно запускає кожен підписаний метод або лямбду, 
+                                                             // передаючи їм параметри (джерело події this та аргументи події з даними про операцію).
 
         // Сповіщення через абстракцію приймача (Додаткове завдання)
         _sink?.Notify($"{DateTimeOffset.Now:HH:mm:ss} {kind} {copyId} (reader: {readerId ?? "none"})");
@@ -25,7 +27,7 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     public BookCopy AddBook(string id, string isbn, string title, int year, string? author = null)
     {
         var book = BookCopy.Create(id, isbn, title, year, author);
-        _store.Add(book);
+        _store.Add(book); // стан збережено успішно
 
         // Підняття події після успішного додавання до сховища
         OnChanged(book.Id, LendingChangeKind.BookAdded);
@@ -72,7 +74,10 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
         return _store.Find(predicate);
     }
 
-    // Вимога методички: пошук за предикатом за допомогою Func
+    //  пошук за предикатом за допомогою Func
+    //Фільтрує примірники книг за переданою умовою-предикатом
     public IReadOnlyList<BookCopy> FindAll(Func<BookCopy, bool> predicate) =>
-        _store.List().Where(predicate).ToList();
+        _store.List()// Отримуємо всі примірники зі сховища
+        .Where(predicate)//Залишаємо лише ті, для яких умова повертає true
+        .ToList();//
 }

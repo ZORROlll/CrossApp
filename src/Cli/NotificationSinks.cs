@@ -43,4 +43,4 @@ public sealed class CompositeNotificationSink(params INotificationSink[] sinks) 
             sink.Notify(message);
         }
     }
-}
+}   

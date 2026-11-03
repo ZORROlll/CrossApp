@@ -67,3 +67,41 @@ dotnet publish src/Cli -c Release -r linux-x64 --self-contained true -o publish/
    - Тип винятку: `InvalidOperationException`
    - Локація: `LoanPolicyService.IssueBookToReader(...)`
    - *Обґрунтування винесення в сервіс*: правило вимагає інформації про дві різні сутності (`BookCopy` та історію `Loan` читача). Сама сутність книги не повинна мати доступу до списку видач читача, тому міжсутнісний інваріант винесено в доменний сервіс.
+
+   ## Відкладене виконання (Deferred Execution) у LINQ
+
+У моєму коді запит конструюється викликом `Where()`, проте сама фільтрація відкладається і фактично виконується лише в момент виклику термінального оператора `Count()` або матеріалізації через `ToList()`. 
+Два виклики `Count()` повернули різні результати (2 та 3), оскільки `query` не зберігає зафіксовані дані, а заново обходить поточну колекцію `demoList` при кожному зверненні, враховуючи доданий елемент. 
+Натомість метод `ToList()` створює знімок результату в пам'яті (матеріалізація), тому наступне очищення джерела `demoList.Clear()` уже ніяк не впливає на зафіксовану кількість елементів у `snapshot`.
+
+
+## Порівняння синтаксису методів (Method Syntax) та синтаксису запитів (Query Syntax)
+
+Для звіту групування видань за авторами порівняно два підходи реалізації:
+
+1. **Синтаксис методів (Method / Fluent Syntax):**
+   ```csharp
+   source.GroupBy(b => b.Author ?? "Невідомий автор", StringComparer.OrdinalIgnoreCase)
+         .Select(g => new GroupSummary(g.Key, g.Count()))
+         .OrderByDescending(s => s.Count)
+         .ThenBy(s => s.Key, StringComparer.Ordinal)
+         .ToList();
+
+2. 
+```csharp
+ var query = from b in source
+            group b by b.Author ?? "Невідомий автор" into g
+            orderby g.Count() descending, g.Key
+            select new GroupSummary(g.Key, g.Count());
+
+return query.ToList();
+
+## Порівняння читабельності:
+Query Syntax (from ... group ... into ...) візуально нагадує декларативні SQL-запити. Він зручний для складних групувань з проміжним контекстом (into g), проте не дозволяє напряму передавати кастомні правила порівняння рядків (наприклад, StringComparer.OrdinalIgnoreCase).
+
+Method Syntax природніший для повсякденної розробки на C#. Він вибудовує прозорий конвеєр викликів (pipeline), є компактнішим і підтримує методи, яких немає серед ключових слів Query Syntax (Take, DistinctBy, ThenBy).
+
+
+
+
+
