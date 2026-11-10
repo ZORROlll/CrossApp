@@ -1,3 +1,4 @@
+using Core;
 using Core.Dto;
 
 namespace Core.Domain;
@@ -60,7 +61,7 @@ public sealed class BookCopy
     public void Issue() //доменний метод зміни стану для сутності BookCopy
     {
         if (_isIssued) //_isIssued вик. суто всередині цього класу, і показує чи видана книга
-            throw new InvalidOperationException($"Примірник {Id} ('{Title}') уже виданий, повторна видача неможлива");//виклик методу є неприпустимим через поточний стан об'єкта
+            throw new DomainException($"Примірник {Id} ('{Title}') уже виданий, повторна видача неможлива");//виклик методу є неприпустимим через поточний стан об'єкта
 
         _isIssued = true; //видана 
     }
@@ -69,7 +70,7 @@ public sealed class BookCopy
     public void Return()
     {
         if (!_isIssued)
-            throw new InvalidOperationException($"Примірник {Id} ('{Title}') не був виданий, повернення неможливе");
+            throw new DomainException($"Примірник {Id} ('{Title}') не був виданий, повернення неможливе");
 
         _isIssued = false;
     }
@@ -88,4 +89,4 @@ public sealed class BookCopy
 
     public override string ToString() =>
         $"{Id} [{Isbn}] \"{Title}\" ({Year} р., {Author ?? "Автор невідомий"}) - Стан: {(_isIssued ? "На руках" : "В наявності")}";
-} 
+}

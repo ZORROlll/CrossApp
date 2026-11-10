@@ -13,18 +13,22 @@ public static class ReportService
               .Select(b => new BookLine(b.Isbn, b.Title, b.Author ?? "Невідомий автор", b.Year))
               .ToList();
 
-    // 2) ВИКОРИСТАННЯ 1: Топ-N найновіших книг через наш метод-розширення TopBy
+    // 2) ВИКОРИСТАННЯ 1: Топ-N найновіших книг через метод-розширення TopBy
     public static IReadOnlyList<BookLine> TopNewest(IEnumerable<BookCopy> source, int n) =>
-        source.DistinctBy(b => b.Isbn)
-              .TopBy(b => b.Year, n) // <-- Власний метод-розширення
+        source.DistinctBy(b => b.Isbn) // Прибираємо дублікати примірників одного видання
+              .TopBy(b => b.Year, n) 
               .Select(b => new BookLine(b.Isbn, b.Title, b.Author ?? "Невідомий автор", b.Year))
               .ToList();
 
-    // 3) Групування за автором із підрахунком книг
-    public static IReadOnlyList<GroupSummary> ByAuthor(IEnumerable<BookCopy> source) =>
-        source.GroupBy(b => b.Author ?? "Невідомий автор", StringComparer.OrdinalIgnoreCase)
-              .Select(g => new GroupSummary(g.Key, g.Count()))
-              .OrderByDescending(s => s.Count)
+       //static означає, що метод належить самому класу, а не його екземпляру.
+    // 3) Групування за автором із підрахунком книг                     //на вхід у метод приходить джерело даних - колекція книг
+    public static IReadOnlyList<GroupSummary> ByAuthor(IEnumerable<BookCopy> source) => //Приймає будь-яку послідовність сутностей BookCopy, яка підтримує перерахування
+        source.GroupBy(b => b.Author ?? "Невідомий автор", StringComparer.OrdinalIgnoreCase) //лямбда-вираз, де b позначає одну поточну книгу (об'єкт BookCopy) у процесі обходу колекції.
+              .Select(g => new GroupSummary(g.Key, g.Count())) //бере кожен вхідний елемент і перетворює його на щось інше.
+                                                               //g ключ цієї групи (рядок з ім'ям автора, наприклад "Martin Fowler"
+                                                               //g.Count метод LINQ, який підраховує, скільки всього книг лежить усередині цієї підгрупи g. Передається другим аргументом.
+              .OrderByDescending(s => s.Count) //сортування за спаданням 
+                                             //s позначає один наш об'єкт GroupSummary (підсумок по автору), отриманий із попереднього кроку Select
               .ThenBy(s => s.Key, StringComparer.Ordinal)
               .ToList();
 
@@ -54,27 +58,42 @@ public static class ReportService
             : (list.Count, list.Average(b => b.Year), list.Min(b => b.Year), list.Max(b => b.Year));
     }
 
-    // 6) Join книг і читачів
-    public static IReadOnlyList<BookLoanLine> GetIssuedBooksWithReaders(
-        IEnumerable<BookCopy> books,
-        IEnumerable<ReaderDto> readers,
-        IEnumerable<(string BookId, string ReaderId)> loans)
-    {
-        return loans
-            .Join(
-                books,
-                loan => loan.BookId,
-                book => book.Id,
-                (loan, book) => new { loan.ReaderId, book.Title, book.Isbn })
-            .Join(
-                readers,
-                lb => lb.ReaderId,
-                reader => reader.Id,
-                (lb, reader) => new BookLoanLine(
-                    lb.Title,
-                    lb.Isbn,
-                    reader.FullName,
-                    reader.TicketNumber))
-            .ToList();
-    }
+  // 6) Метод для отримання зведеного списку: 
+public static IReadOnlyList<BookLoanLine> GetIssuedBooksWithReaders(
+    IEnumerable<BookCopy> books,                         
+    IEnumerable<ReaderDto> readers,                     
+    IEnumerable<(string BookId, string ReaderId)> loans) // Список фактів видачі: пари (ID_книги, ID_читача)
+{
+    return loans
+       
+        // З'єднуємо список видач (loans) зі списком книг (books).
+        // Це операція INNER JOIN: якщо ID книги з видачі є в базі книг — запис проходить далі.
+
+        .Join(
+            books,                                      //з якою колекцією з'єднуємо
+            loan => loan.BookId,                        //ключ зв'язку з лівої таблиці (ID книги у факті видачі)
+            book => book.Id,                            //ключ зв'язку з правої таблиці (ID у списку книг)
+            (loan, book) => new                       
+            { 
+                loan.ReaderId,                         
+                book.Title,                            
+                book.Isbn                             
+            })
+
+     
+        //  До отриманого проміжного результату приєднуємо читачів (readers).
+        
+        .Join(
+            readers,                                    // колекція читачів
+            lb => lb.ReaderId,                          // ключ із попереднього кроку (збережений ReaderId)
+            reader => reader.Id,                        
+            (lb, reader) => new BookLoanLine(           // 4-й аргумент: формуємо фінальний готовий об'єкт (DTO):
+                lb.Title,                               
+                lb.Isbn,                                
+                reader.FullName,                       
+                reader.TicketNumber))                   
+
+        .ToList();
+}
+
 }

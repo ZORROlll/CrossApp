@@ -90,70 +90,22 @@ if (useFile && fileFlagIndex + 1 < args.Length && !args[fileFlagIndex + 1].Start
 // Файл для блоку імпорту (ігноруємо значення після --file, щоб не ламало імпорт)
 string importPath = args
     .Where((a, i) => !a.StartsWith("--") && (fileFlagIndex == -1 || i != fileFlagIndex + 1))
-    .FirstOrDefault() ?? Path.Combine("data", "mixed.csv");
+    .FirstOrDefault() ?? Path.Combine("data", "catalog.json");
 
-// ==================== ІМПОРТ ДАНИХ ІЗ ФАЙЛУ ====================
-if (File.Exists(importPath))
-{
-    string extension = Path.GetExtension(importPath).ToLowerInvariant();
+// ==================== РОБОТА ЗІ СХОВИЩЕМ ТА СЕРВІСОМ (COMPOSITION ROOT) ====================
+// Шлях береться або введений вручну, або локальний catalog.json прямо в поточній папці запуску
+string catalogDataPath = customFilePath ?? Path.Combine("data", "catalog.json");
 
-    ImportResult<object> result = extension switch
-    {
-        // 1. Передаємо лямбду (Action) у BookCsvImporter.Load
-        ".csv" => BookCsvImporter.Load(importPath, skipped =>
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"[Пропущено рядок {skipped.LineNumber}] {skipped.Reason} | Дані: \"{skipped.RawLine}\"");
-            Console.ResetColor();
-        }),
+// Вибір сховища залежно від прапорця --file
+IBookStore baseStore = useFile
+    ? new FileBookStore(catalogDataPath)
+    : new InMemoryBookStore(SampleData.Books());
 
-        ".json" => BookJsonImporter.Load(importPath) is var jsonRes
-            ? new ImportResult<object>(jsonRes.Items.Cast<object>().ToList(), jsonRes.Errors)
-            : new ImportResult<object>([], []),
+// Обгортання базового сховища декоратором
+IBookStore store = new CachingBookStore(baseStore);
+var service = new LendingService(store);
+var lendingService = service;
 
-        _ => new ImportResult<object>([], [$"Непідтримуване розширення '{extension}'. Дозволено: .csv, .json"])
-    };
-
-    Console.WriteLine($"Завантажено записів із файлу: {result.Items.Count}");
-
-    foreach (object item in result.Items.Take(5))
-    {
-        switch (item)
-        {
-            case BookDto b:
-                Console.WriteLine($" [Книга]  {b.Id,-6} {b.Isbn,-16} {b.Title,-25} {b.Year,5}  {b.Author ?? "-"}");
-                break;
-            case ReaderDto r:
-                Console.WriteLine($" [Читач]  {r.Id,-6} {r.TicketNumber,-16} {r.FullName,-25}");
-                break;
-        }
-    }
-
-    if (result.Errors.Count > 0)
-    {
-        Console.WriteLine($"Пропущено записів на етапі парсингу: {result.Errors.Count}");
-    }
-
-    // ДОДАТКОВЕ ЗАВДАННЯ 2: передача Action<string> для оперативних сповіщень про відхилені рядки
-    Console.WriteLine("\n[Додаткове завдання 2]: Звіт процесора імпорту через Action<string>:");
-    DomainImportResult<BookCopy> domainResult = BookImportProcessor.ToDomainEntities(
-        result,
-        skippedMessage => Console.WriteLine($"   ! {skippedMessage}")
-    );
-
-    Console.WriteLine($"\nСтворено доменних сутностей: {domainResult.Entities.Count}");
-    foreach (BookCopy entity in domainResult.Entities.Take(3))
-    {
-        Console.WriteLine($"  [Сутність] {entity}");
-    }
-
-    if (domainResult.InvariantErrors.Count > 0)
-    {
-        Console.WriteLine($"Загалом відхилено записів через порушення інваріантів/парсингу: {domainResult.InvariantErrors.Count}");
-    }
-
-    Console.WriteLine();
-}
 // ==================== СЦЕНАРІЇ РОБОТИ ====================
 
 Console.WriteLine("=== Сценарій 1: успішне створення та зміна стану сутності ===");
@@ -234,20 +186,8 @@ TryDo("перевищення ліміту видач читача (>5)", () =>
 });
 Console.WriteLine();
 
-// ==================== РОБОТА ЗІ СХОВИЩЕМ ТА СЕРВІСОМ (COMPOSITION ROOT) ====================
+// ==================== РОБОТА ЗІ СХОВИЩЕМ ТА СЕРВІСОМ ====================
 Console.WriteLine("=== Робота з каталогом примірників ===");
-
-// Шлях береться або введений вручну, або локальний catalog.json прямо в поточній папці запуску
-string catalogDataPath = customFilePath ?? Path.Combine("data", "catalog.json");
-
-// Вибір сховища залежно від прапорця --file
-IBookStore baseStore = useFile
-    ? new FileBookStore(catalogDataPath)
-    : new InMemoryBookStore(SampleData.Books());
-
-// Обгортання базового сховища декоратором
-IBookStore store = new CachingBookStore(baseStore);
-var service = new LendingService(store);
 
 Console.WriteLine($"[Конфігурація] Прапорець --file: {(useFile ? "АКТИВНИЙ" : "ВІДСУТНІЙ")}");
 Console.WriteLine($"[Конфігурація] Базове сховище: {baseStore.GetType().Name} -> {catalogDataPath}");
@@ -331,7 +271,7 @@ try
     Console.WriteLine($"Спроба видачі книги з неіснуючим ID '{nonExistentId}'...");
     service.IssueCopy(nonExistentId);
 }
-catch (InvalidOperationException ex)
+catch (DomainException ex)
 {
     Console.WriteLine($" [Очікувана помилка]: {ex.Message}");
 }
@@ -345,7 +285,7 @@ try
         service.AddBook(currentItem.Id, "978-0000000000", "Duplicate Book", 2024, "Unknown");
     }
 }
-catch (InvalidOperationException ex)
+catch (Exception ex)
 {
     Console.WriteLine($" [Очікувана помилка]: {ex.Message}");
 }
@@ -547,23 +487,23 @@ foreach (var item in Core.Reports.ReportService.ByAuthorQuerySyntax(Core.Data.Sa
 //               ДОДАТКОВЕ ЗАВДАННЯ: БЕНЧМАРК ЗВІТУ (STOPWATCH НА 100 000 ЗАПИСІВ)
 // ============================================================================
 Console.WriteLine("\n" + new string('*', 78));
-Console.WriteLine(">>> [БОНУС 4]: ТЕСТ ПРОДУКТИВНОСТІ LINQ (100 000 ЗАПИСІВ) <<<");
+Console.WriteLine(">>> : ТЕСТ ПРОДУКТИВНОСТІ LINQ (100 000 ЗАПИСІВ) <<<");
 Console.WriteLine(new string('*', 78));
 
-Console.Write("Генерація 100 000 тестових записів... ");
+// Генеруємо тестову базу даних прямо в оперативній пам'яті:
 var bigDataset = Enumerable.Range(1, 100_000)
-    .Select(i => Core.Domain.BookCopy.Create(
-        $"b_{i}",
-        $"978-{i:D6}",
-        $"Book Title {i}",
-        1950 + (i % 75),
-        $"Author {i % 500}"))
+    .Select(i => Core.Domain.BookCopy.Create( // Перетворюємо кожне число на об'єкт книги
+        $"b_{i}",                            
+        $"978-{i:D6}",                       
+        $"Book Title {i}",                  
+        1950 + (i % 75),                     // Задаємо рік видання (в діапазоні від 1950 до 2024 року)
+        $"Author {i % 500}"))                // Розподіляємо книги порівну між 500 різними авторами
     .ToList();
-Console.WriteLine("Готово.\n");
 
-// 0. Розігрів JIT (щоб перший тест не платив за компіляцію)
+// Виконуємо швидкий необов'язковий LINQ-запит, щоб середовище .NET скомпілювало методи в машинний код
 _ = bigDataset.Where(b => b.Year > 2000).Take(10).ToList();
 
+// Створюємо об'єкт секундоміра для точного вимірювання часу в мілісекундах
 var sw = new Stopwatch();
 
 // Варіант А: Чистий конвеєр (фільтрація + взяття перших 500 БЕЗ вивантаження всіх 66 тисяч у проміжний список)
@@ -571,7 +511,7 @@ sw.Restart();
 var resultA = bigDataset
     .Where(b => b.Year > 2000)
     .Select(b => new { b.Title, b.Year })
-    .Take(500)
+    .Take(500) // Оптимізація: беремо перші 500 знайдених і ОДРАЗУ зупиняємо обхід
     .ToList();
 sw.Stop();
 var timeWithoutIntermediateList = sw.ElapsedMilliseconds;
@@ -592,5 +532,92 @@ Console.WriteLine($" 2. Із проміжним ToList() посередині   
 Console.WriteLine(new string('-', 78));
 Console.WriteLine($"[ВИСНОВОК]: Проміжний ToList() збільшив час виконання та навантаження на пам'ять.");
 Console.WriteLine(new string('*', 78) + "\n");
+
+// ============================================================================
+//   КРОК 5: CLI, TOP-LEVEL AWAIT, CTRL+C ТА РОЗДІЛЬНА ОБРОБКА ВИНЯТКІВ
+// ============================================================================
+Console.WriteLine("==============================================================================");
+Console.WriteLine("АСИНХРОННИЙ ІМПОРТ");
+Console.WriteLine("==============================================================================");
+
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
+// Якщо в команді передано прапорець --cancel — скасовуємо операцію для перевірки
+if (args.Contains("--cancel"))
+{
+    cts.Cancel();
+}
+
+string filePath = args.FirstOrDefault(a => !a.StartsWith("--") && a != "import") 
+                  ?? Path.Combine("data", "catalog.json");
+
+try
+{
+    var importer = new BookJsonImporter();
+
+    // 1. Таймаут ставимо на 60 секунд (щоб він не обганяв паузу)
+    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, timeoutCts.Token);
+
+    // Пауза на 10 секунд (якщо не натискати Ctrl+C — піде імпорт)
+    Console.WriteLine("Очікування 10 секунд... Натисніть Ctrl+C для скасування або зачекайте для виводу таблиці:");
+    await Task.Delay(10000, linkedCts.Token);
+
+    // 2. Асинхронне читання сутностей із linked-токеном
+    var loadedBooks = await importer.LoadAsync(filePath, linkedCts.Token);
+
+    // ========================================================================
+    // ДОДАТКОВЕ ЗАВДАННЯ 3: Підписник на прогрес (малює відсотки у CLI)
+    // ========================================================================
+    var progress = new Progress<int>(percent =>
+    {
+        Console.Write($"\r[ПРОГРЕС ІМПОРТУ]: {percent,3}%");
+        if (percent == 100) Console.WriteLine();
+    });
+
+    // 3. Імпорт у сервіс із linked-токеном та передачею progress
+    int added = await lendingService.ImportAsync(importer, filePath, linkedCts.Token, progress);
+
+    // 4. Таблиця результатів
+    Console.WriteLine($"\nФайл: {filePath}\n");
+    Console.WriteLine($" {"ID",-10} | {"ISBN",-16} | {"Назва книги",-30} | {"Рік"}");
+    Console.WriteLine(new string('-', 78));
+    foreach (var b in loadedBooks)
+    {
+        Console.WriteLine($" {b.Id,-10} | {b.Isbn,-16} | {b.Title,-30} | {b.Year}");
+    }
+    Console.WriteLine(new string('-', 78));
+    Console.WriteLine($"[УСПІХ] Імпортовано записів: {added}\n");
+}
+
+catch (OperationCanceledException) when (cts.IsCancellationRequested)
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine("[СКАСОВАНО] Імпорт перервано користувачем (Ctrl+C або --cancel).");
+    Console.ResetColor();
+}
+catch (OperationCanceledException)
+{
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine("[ТАЙМАУТ] Перевищено ліміт часу очікування операції імпорту.");
+    Console.ResetColor();
+}
+catch (DomainException ex)
+{
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"[ПОМИЛКА ДАНИХ] Дані відхилено: {ex.Message}");
+    Console.ResetColor();
+}
+catch (FileNotFoundException)
+{
+    Console.ForegroundColor = ConsoleColor.Red;
+    Console.WriteLine($"[ПОМИЛКА] Файл не знайдено: {filePath}");
+    Console.ResetColor();
+}
 
 return 0;

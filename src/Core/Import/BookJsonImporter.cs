@@ -1,63 +1,98 @@
-using System.Text.Json; 
-using Core.Dto;         
-
 namespace Core.Import;
 
-public static class BookJsonImporter
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Core;
+using Core.Abstractions;
+using Core.Domain;
+using Core.Dto;
+
+public sealed class BookJsonImporter : IBookImporter
 {
-    // Налаштування парсера: ігноруємо регістр літер у назвах властивостей (наприклад, "title" чи "Title")
     private static readonly JsonSerializerOptions Options = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    // Головний метод зчитування та валідації списку книг із JSON-файлу
-    public static ImportResult<BookDto> Load(string path)
+    public async Task<IReadOnlyList<BookCopy>> LoadAsync(string path, CancellationToken ct = default)
     {
-        var items = new List<BookDto>();  // Список валідних книг, готових до збереження
-        var errors = new List<string>(); 
+        ct.ThrowIfCancellationRequested();
 
-        try
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true);
+
+        var dtos = await JsonSerializer.DeserializeAsync<List<BookDto>>(
+            stream,
+            Options,
+            cancellationToken: ct)
+            ?? throw new DomainException($"Файл {Path.GetFileName(path)} не містить списку.");
+
+        var result = new List<BookCopy>(dtos.Count);
+
+        for (var i = 0; i < dtos.Count; i++)
         {
-            // Зчитуємо весь вміст файлу в один текстовий рядок
-            string json = File.ReadAllText(path);
+            ct.ThrowIfCancellationRequested();
 
-            var books = JsonSerializer.Deserialize<List<BookDto>>(json, Options) ?? [];
-
-            // Перевіряємо кожну книгу на коректність даних
-            for (int i = 0; i < books.Count; i++)
+            try
             {
-                int number = i + 1;      
-                var book = books[i];     // Поточна книга з масиву
-
-                // Перевірка 1: чи заповнені обов'язкові поля Id та Title
-                if (string.IsNullOrWhiteSpace(book.Id) || string.IsNullOrWhiteSpace(book.Title))
-                {
-                    errors.Add($"об'єкт {number}: Id або Title порожні");
-                    continue; // Пропускаємо цю книгу і йдемо до наступної
-                }
-
-                // Перевірка 2: чи рік видання потрапляє в реалістичний діапазон (від 1450 до поточного)
-                if (book.Year < 1450 || book.Year > DateTime.Now.Year)
-                {
-                    errors.Add($"об'єкт {number}: рік '{book.Year}' поза допустимими межами (1450-{DateTime.Now.Year})");
-                    continue; // Пропускаємо цю книгу
-                }
-
-                // Якщо всі перевірки пройдено успішно — додаємо книгу до списку прийнятих
-                items.Add(book);
+                result.Add(BookCopy.FromDto(dtos[i]));
+            }
+            catch (ArgumentException ex)
+            {
+                throw new DomainException($"Запис {i + 1}: {ex.Message}", ex);
             }
         }
-        catch (JsonException ex) // Ловимо виняток, якщо сам файл містить синтаксично битий JSON (не вистачає дужки чи коми)
-        {
-            errors.Add($"Синтаксична помилка JSON: {ex.Message}");
-        }
 
-        // Повертаємо контейнер із двома списками: валідні книги та список помилок
-        return new ImportResult<BookDto>(items, errors);
+        return result;
+    }
+
+    // ========================================================================
+    // ДОДАТКОВЕ ЗАВДАННЯ: Потоковий імпорт через IAsyncEnumerable
+    // ========================================================================
+    public async IAsyncEnumerable<BookCopy> StreamAsync(
+        string path,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true);
+
+        var index = 0;
+        await foreach (var dto in JsonSerializer.DeserializeAsyncEnumerable<BookDto>(stream, Options, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (dto is null) 
+                continue;
+
+            BookCopy copy;
+            try
+            {
+                copy = BookCopy.FromDto(dto);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new DomainException($"Запис {index + 1}: {ex.Message}", ex);
+            }
+
+            index++;
+            yield return copy;
+        }
     }
 }
-
-
- 
-

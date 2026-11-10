@@ -1,8 +1,10 @@
 namespace Core.Services;
 
+using Core;
 using Core.Abstractions;
 using Core.Domain;
 using Core.Events;
+using Core.Import;
 
 public sealed class LendingService(IBookStore store, INotificationSink? sink = null)
 {
@@ -10,15 +12,13 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     private readonly INotificationSink? _sink = sink;
 
     // Подія сповіщення про зміну стану книги
-    public event EventHandler<LendingChangedEventArgs>? Changed; //
+    public event EventHandler<LendingChangedEventArgs>? Changed;
 
     // Приватний метод для безпечного підняття події та відправки в sink
     private void OnChanged(string copyId, LendingChangeKind kind, string? readerId = null, DateTimeOffset? dueDate = null)
     {
         // Основна доменна подія (1) зміна стану
-        Changed?.Invoke(this, new LendingChangedEventArgs(copyId, kind, readerId, dueDate)); //бере внутрішній список підписників (InvocationList) 
-                                                             //і послідовно запускає кожен підписаний метод або лямбду, 
-                                                             // передаючи їм параметри (джерело події this та аргументи події з даними про операцію).
+        Changed?.Invoke(this, new LendingChangedEventArgs(copyId, kind, readerId, dueDate));
 
         // Сповіщення через абстракцію приймача (Додаткове завдання)
         _sink?.Notify($"{DateTimeOffset.Now:HH:mm:ss} {kind} {copyId} (reader: {readerId ?? "none"})");
@@ -43,7 +43,7 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     public void IssueCopy(string id, string? readerId = "reader-01", DateTimeOffset? dueDate = null)
     {
         var book = _store.GetById(id)
-            ?? throw new InvalidOperationException($"Примірник з id={id} не знайдено.");
+            ?? throw new DomainException($"Примірник з id={id} не знайдено.");
 
         book.Issue();
         _store.Update(book);
@@ -55,7 +55,7 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     public void ReturnCopy(string id)
     {
         var book = _store.GetById(id)
-            ?? throw new InvalidOperationException($"Примірник з id={id} не знайдено.");
+            ?? throw new DomainException($"Примірник з id={id} не знайдено.");
 
         book.Return();
         _store.Update(book);
@@ -75,9 +75,71 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
     }
 
     //  пошук за предикатом за допомогою Func
-    //Фільтрує примірники книг за переданою умовою-предикатом
+    // Фільтрує примірники книг за переданою умовою-предикатом
     public IReadOnlyList<BookCopy> FindAll(Func<BookCopy, bool> predicate) =>
-        _store.List()// Отримуємо всі примірники зі сховища
-        .Where(predicate)//Залишаємо лише ті, для яких умова повертає true
-        .ToList();//
+        _store.List()
+        .Where(predicate)
+        .ToList();
+
+// ==================== ЛАБОРАТОРНА РОБОТА 8: КРОК 4 ====================
+    public async Task<int> ImportAsync(
+        IBookImporter importer, 
+        string path, 
+        CancellationToken ct = default,
+        // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: IProgress (опціональний параметр зі значенням default) <<<
+        IProgress<int>? progress = null)
+    {
+        ArgumentNullException.ThrowIfNull(importer);
+
+        var items = await importer.LoadAsync(path, ct);
+        var added = 0;
+        var total = items.Count;
+
+        for (int i = 0; i < total; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            var item = items[i];
+
+            // Ідемпотентність імпорту: якщо книга з таким ID вже є — пропускаємо
+            if (_store.GetById(item.Id) is not null) 
+            {
+                // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: Звітуємо прогрес навіть якщо елемент пропущено <<<
+                int currentPercent = (int)((i + 1) * 100.0 / total);
+                progress?.Report(currentPercent);
+                continue;
+            }
+
+            _store.Add(item);
+            OnChanged(item.Id, LendingChangeKind.BookAdded);
+            added++;
+
+            // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: Відправляємо поточний відсоток виконання (0..100%) <<<
+            int percent = (int)((i + 1) * 100.0 / total);
+            progress?.Report(percent);
+        }
+
+        return added;
+    }
+
+// ==================== ДОДАТКОВЕ ЗАВДАННЯ 1: ПОТОКОВИЙ ІМПОРТ ====================
+// Додаткове завдання: імпорт через await foreach та IAsyncEnumerable
+    public async Task<int> ImportStreamAsync(IBookImporter importer, string path, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(importer);
+
+        var added = 0;
+
+        await foreach (var item in importer.StreamAsync(path, ct).WithCancellation(ct))
+        {
+            if (_store.GetById(item.Id) is not null)
+                continue;
+
+            _store.Add(item);
+            OnChanged(item.Id, LendingChangeKind.BookAdded);
+            added++;
+        }
+
+        return added;
+    }
 }
