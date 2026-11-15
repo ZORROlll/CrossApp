@@ -10,13 +10,42 @@ using Core.Import;
 using Core.Services;
 using Core.Storage;
 using Core.Data;
-
+using System.Reflection;
+using Core.Configuration;
+using Microsoft.Extensions.Configuration;
 Console.OutputEncoding = Encoding.UTF8;
+
+var envName = Environment.GetEnvironmentVariable("CROSSAPP_ENVIRONMENT") ?? "Development";
+
+var config = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+    .AddJsonFile($"appsettings.{envName}.json", optional: true)
+    .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
+    .AddEnvironmentVariables(prefix: "CROSSAPP_")
+    .AddCommandLine(args)
+    .Build();
+
+var options = config.Get<AppOptions>() ?? new AppOptions();
+
+var legacy = Environment.GetEnvironmentVariable("CROSSAPP_DATA_PATH");
+var storage = new StorageOptions
+{
+    DataPath = string.IsNullOrWhiteSpace(legacy) ? options.Storage.DataPath : legacy,
+    FileName = options.Storage.FileName
+};
+
+var fullDataPath = storage.ResolveFullPath(AppContext.BaseDirectory);
+var apiKey = config["Integration:ApiKey"];
+
+Console.WriteLine($"Файл даних: {fullDataPath}");
+Console.WriteLine(apiKey is null ? "ApiKey: не заданий" : $"ApiKey: присутній, довжина {apiKey.Length}");
 
 // ==================== ОБРОБКА ПІДКОМАНД ЗВІТІВ ====================
 string subCmd = args.FirstOrDefault(a => !a.StartsWith("--"))?.ToLowerInvariant() ?? "";
 
 if (subCmd is "report-low" or "report-top" or "report-groups" or "report-totals")
+
 {
     var reportBooks = SampleData.Books();
 
@@ -93,10 +122,10 @@ string importPath = args
     .FirstOrDefault() ?? Path.Combine("data", "catalog.json");
 
 // ==================== РОБОТА ЗІ СХОВИЩЕМ ТА СЕРВІСОМ (COMPOSITION ROOT) ====================
-// Шлях береться або введений вручну, або локальний catalog.json прямо в поточній папці запуску
-string catalogDataPath = customFilePath ?? Path.Combine("data", "catalog.json");
+// [Крок 5.9 - ЛР №9] Шлях до файлу даних надходить із конфігурації (fullDataPath), якщо не перевизначений прапорцем --file
+string catalogDataPath = customFilePath ?? fullDataPath;
 
-// Вибір сховища залежно від прапорця --file
+// Вибір сховища залежно від прапорця --file (або за замовчуванням у конфігурації)
 IBookStore baseStore = useFile
     ? new FileBookStore(catalogDataPath)
     : new InMemoryBookStore(SampleData.Books());
@@ -540,11 +569,15 @@ Console.WriteLine("=============================================================
 Console.WriteLine("АСИНХРОННИЙ ІМПОРТ");
 Console.WriteLine("==============================================================================");
 
-using var cts = new CancellationTokenSource();
-Console.CancelKeyPress += (_, e) =>
+
+//2) CLI перехоплює Ctrl+C і створює джерело скасування
+using var cts = new CancellationTokenSource();//об'єкт, який створює сигнал скасування та керує ним.
+//системна подія класу Console, яка спрацьовує, коли користувач у терміналі натискає комбінацію клавіш Ctrl+C
+//додає наш обробник до списку дій, які мають виконатися в момент натискання клавіш.
+Console.CancelKeyPress += (_, e) => //e — це змінна, яка містить дані про подію натискання Ctrl+C
 {
-    e.Cancel = true;
-    cts.Cancel();
+    e.Cancel = true; //спрацьовує після натискання комбінації клавіш
+    cts.Cancel(); // Подає сигнал скасування всім асинхронним операціям через CancellationToken
 };
 
 // Якщо в команді передано прапорець --cancel — скасовуємо операцію для перевірки
@@ -561,15 +594,16 @@ try
     var importer = new BookJsonImporter();
 
     // 1. Таймаут ставимо на 60 секунд (щоб він не обганяв паузу)
-    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, timeoutCts.Token);
-
+    //ми їх обєднуємо бо імпорт може прийняти тільки один токен     
     // Пауза на 10 секунд (якщо не натискати Ctrl+C — піде імпорт)
     Console.WriteLine("Очікування 10 секунд... Натисніть Ctrl+C для скасування або зачекайте для виводу таблиці:");
     await Task.Delay(10000, linkedCts.Token);
 
     // 2. Асинхронне читання сутностей із linked-токеном
-    var loadedBooks = await importer.LoadAsync(filePath, linkedCts.Token);
+    var loadedBooks = await importer.LoadAsync(filePath, linkedCts.Token); //метод конкретного завантажувача (наприклад, BookJsonImporter),
+                                                                             //який відкриває файловий потік, парсить вміст і перетворює DTO на доменні сутності BookCopy.
 
     // ========================================================================
     // ДОДАТКОВЕ ЗАВДАННЯ 3: Підписник на прогрес (малює відсотки у CLI)
@@ -581,6 +615,9 @@ try
     });
 
     // 3. Імпорт у сервіс із linked-токеном та передачею progress
+    // Асинхронний виклик імпорту: передаємо обраний завантажувач (importer), шлях до файлу (filePath),
+// токен для можливості скасування за Ctrl+C або таймаутом (linkedCts.Token) 
+// та об'єкт для відстеження відсотків виконання (progress)
     int added = await lendingService.ImportAsync(importer, filePath, linkedCts.Token, progress);
 
     // 4. Таблиця результатів
@@ -619,5 +656,68 @@ catch (FileNotFoundException)
     Console.WriteLine($"[ПОМИЛКА] Файл не знайдено: {filePath}");
     Console.ResetColor();
 }
+await Task.Delay(100); 
+
+// [Крок 5.8 - ЛР №9] Підкоманди export та import для роботи з JSON-файлом конфігурації
+if (subCmd is "export" or "import")
+{
+    var targetPath = customFilePathFromArgs(args) ?? fullDataPath;
+    var jsonStore = new FileBookStore(targetPath);
+
+    if (subCmd == "export")
+    {
+        // Наповнюємо сховище тестовими книгами (включно з кирилицею), якщо воно ще порожнє
+        if (jsonStore.List().Count == 0)
+        {
+            foreach (var sample in SampleData.Books())
+            {
+                jsonStore.Add(sample);
+            }
+            jsonStore.Add(BookCopy.Create("BC-UA1", "978-966-03-4567-8", "Тіні забутих предків", 1911, "Михайло Коцюбинський"));
+        }
+
+        Console.WriteLine($"[EXPORT] Експортовано {jsonStore.List().Count} записів у файл: {jsonStore.FilePath}");
+        return 0;
+    }
+
+    if (subCmd == "import")
+    {
+        try
+        {
+            var imported = jsonStore.List();
+            Console.WriteLine($"[IMPORT] Успішно зчитано {imported.Count} записів із файлу: {jsonStore.FilePath}");
+            foreach (var b in imported)
+            {
+                Console.WriteLine($"  {b.Id,-8} | {b.Isbn,-18} | {b.Title,-26} | {b.Year} | {b.Author}");
+            }
+            return 0;
+        }
+        catch (DomainException ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"[ПОМИЛКА JSON] {ex.Message}");
+            Console.ResetColor();
+            return 1;
+        }
+    }
+}
+
+static string? customFilePathFromArgs(string[] arguments)
+{
+    int idx = Array.FindIndex(arguments, a => string.Equals(a, "--file", StringComparison.OrdinalIgnoreCase));
+    return (idx != -1 && idx + 1 < arguments.Length && !arguments[idx + 1].StartsWith("--"))
+        ? arguments[idx + 1]
+        : null;
+} 
+// ==================== ЛАБОРАТОРНА РОБОТА №9 ====================
+Console.WriteLine("\n==============================================================================");
+Console.WriteLine("ЛАБОРАТОРНА РОБОТА №9: ШЛЯХИ, JSON, КОНФІГУРАЦІЯ, SECRETS");
+Console.WriteLine("==============================================================================");
+Console.WriteLine($"Профіль середовища (EnvironmentName): {options.EnvironmentName}");
+Console.WriteLine($"Рівень логування (Logging:MinimumLevel): {options.Logging.MinimumLevel}");
+Console.WriteLine($"Термін позики (Library:LoanDays): {options.Library.LoanDays} дн.");
+Console.WriteLine($"Файл даних: {fullDataPath}");
+Console.WriteLine(apiKey is null ? "ApiKey: не заданий" : $"ApiKey: присутній, довжина {apiKey.Length}");
+Console.WriteLine("==============================================================================\n");
 
 return 0;

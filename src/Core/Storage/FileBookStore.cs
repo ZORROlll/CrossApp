@@ -1,5 +1,7 @@
 namespace Core.Storage;
 
+// [Крок 5.1 - ЛР №9] Додано простір імен для JavaScriptEncoder (щоб вимкнути екранування кирилиці у \uXXXX)
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using Core.Abstractions;
 using Core.Domain;
@@ -7,8 +9,13 @@ using Core.Dto;
 
 public sealed class FileBookStore : IBookStore
 {
-    // Статичні налаштування JSON: однаковий формат для всіх екземплярів, читабельний відступ
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
+    // [Крок 5.2 - ЛР №9] Налаштовано серіалізацію: camelCase для властивостей та UnsafeRelaxedJsonEscaping для читабельної кирилиці
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     // Внутрішній кеш примірників у пам'яті (порівняння Id без урахування регістру)
     private readonly Dictionary<string, BookCopy> _cache = new(StringComparer.OrdinalIgnoreCase);
@@ -19,7 +26,8 @@ public sealed class FileBookStore : IBookStore
     // Прапорець для запобігання повторному зчитуванню з диска
     private bool _loaded;
 
-    public FileBookStore(string path = "catalog.json")
+    // [Крок 5.3 - ЛР №9] Змінено ім'я файлу за замовчуванням на books.json відповідно до конфігурації
+    public FileBookStore(string path = "books.json")
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         _path = Path.GetFullPath(path);
@@ -56,16 +64,30 @@ public sealed class FileBookStore : IBookStore
     {
         if (_loaded) return;
 
-        if (File.Exists(_path))
+        // [Крок 5.4 - ЛР №9] Якщо файл даних ще не створений — просто позначаємо сховище як завантажене без помилок
+        if (!File.Exists(_path))
+        {
+            _loaded = true;
+            return;
+        }
+
+        // [Крок 5.5 - ЛР №9] Додано обробку пошкодженого JSON (JsonException -> зрозумілий DomainException замість необробленого stack trace)
+        try
         {
             var json = File.ReadAllText(_path);
-            var dtos = JsonSerializer.Deserialize<List<BookDto>>(json) ?? [];
+            // [Крок 5.6 - ЛР №9] Передано Options у Deserialize для коректного зчитування camelCase-полів
+            var dtos = JsonSerializer.Deserialize<List<BookDto>>(json, Options) ?? [];
 
+            _cache.Clear();
             foreach (var dto in dtos)
             {
                 var book = BookCopy.FromDto(dto);
                 _cache[book.Id] = book;
             }
+        }
+        catch (JsonException ex)
+        {
+            throw new DomainException($"Помилка читання JSON у файлі '{_path}': некоректний формат даних ({ex.Message}).");
         }
 
         _loaded = true;
@@ -82,7 +104,11 @@ public sealed class FileBookStore : IBookStore
         }
 
         var dtos = _cache.Values.Select(b => b.ToDto()).ToList();
-        File.WriteAllText(_path, JsonSerializer.Serialize(dtos, Options));
+
+        // [Крок 5.7 - ЛР №9] Атомарний запис у JSON: спочатку у тимчасовий .tmp файл, потім заміна основного через File.Move
+        var tmp = _path + ".tmp";
+        File.WriteAllText(tmp, JsonSerializer.Serialize(dtos, Options));
+        File.Move(tmp, _path, overwrite: true);
     }
 
     public IReadOnlyList<BookCopy> List()

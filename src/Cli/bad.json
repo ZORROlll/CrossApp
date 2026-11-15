@@ -1,0 +1,20 @@
+[
+  {
+    "id": "BC-101",
+    "isbn": "978-0132350884",
+    "title": "Clean Code",
+    "year": 2008
+  },
+  {
+    "id": "BC-102",
+    "isbn": "",
+    "title": "Bad Book",
+    "year": 2020
+  },
+  {
+    "id": "BC-103",
+    "isbn": "978-0131103627",
+    "title": "The C Programming Language",
+    "year": 1988
+  }
+]

@@ -102,6 +102,53 @@ Query Syntax (from ... group ... into ...) візуально нагадує д�
 Method Syntax природніший для повсякденної розробки на C#. Він вибудовує прозорий конвеєр викликів (pipeline), є компактнішим і підтримує методи, яких немає серед ключових слів Query Syntax (Take, DistinctBy, ThenBy).
 
 
+## Конфігурація, профілі та Secrets (ЛР №9)
+
+Застосунок використовує `Microsoft.Extensions.Configuration` із каскадом джерел конфігурації (від найнижчого до найвищого пріоритету):
+1. `appsettings.json` — базові налаштування для всіх середовищ.
+2. `appsettings.{CROSSAPP_ENVIRONMENT}.json` — налаштування активного профілю (`Development` за замовчуванням або `Production`).
+3. `dotnet user-secrets` — локальне сховище конфіденційних ключів поза репозиторієм Git.
+4. Змінні середовища з префіксом `CROSSAPP_` (а також окрема змінна `CROSSAPP_DATA_PATH`).
+5. Аргументи командного рядка (`--Section:Key=Value` або `--file`).
+
+### Профілі середовища
+
+* **`Development`** (за замовчуванням, якщо `CROSSAPP_ENVIRONMENT` не задано): `Logging:MinimumLevel = Debug`, `Library:LoanDays = 14`, зберігання даних у `data/books.json` відносно каталогу збірки (`AppContext.BaseDirectory`).
+* **`Production`** (`CROSSAPP_ENVIRONMENT=Production`): використовує базові налаштування з `appsettings.json` (`Logging:MinimumLevel = Information`, `Library:LoanDays = 14`) без секретів розробника.
+
+### Таблиця ключів конфігурації
+
+| Ключ конфігурації | Змінна середовища | Значення за замовчуванням | Опис |
+| :--- | :--- | :--- | :--- |
+| `Storage:DataPath` | `CROSSAPP_Storage__DataPath` (або `CROSSAPP_DATA_PATH`) | `data` | Відносний або абсолютний шлях до каталогу збереження даних |
+| `Storage:FileName` | `CROSSAPP_Storage__FileName` | `books.json` | Ім'я JSON-файлу каталогу примірників бібліотеки |
+| `Logging:MinimumLevel` | `CROSSAPP_Logging__MinimumLevel` | `Information` (`Debug` у Dev) | Мінімальний рівень журналювання застосунку |
+| `Library:LoanDays` | `CROSSAPP_Library__LoanDays` | `14` | Стандартний термін видачі книги читачеві (у днях) |
+| `Integration:ApiKey` | `CROSSAPP_Integration__ApiKey` (або `user-secrets`) | *(не задано)* | Секретний ключ зовнішньої інтеграції (у консоль виводиться лише факт наявності та довжина) |
+
+### Приклади запуску зі змінними середовища та секретами
+
+#### Git Bash / Linux / macOS (bash)
+
+```bash
+# Налаштування секретного ключа локально (один раз)
+dotnet user-secrets set "Integration:ApiKey" "local-dev-key" --project src/Cli
+
+# Запуск у профілі Production зі зміненим терміном позики та шляхом даних
+CROSSAPP_ENVIRONMENT=Production CROSSAPP_Library__LoanDays=30 CROSSAPP_DATA_PATH=custom_data dotnet run --project src/Cli -- export
+
+# Імпорт даних із JSON-сховища
+dotnet run --project src/Cli -- import
 
 
+# Налаштування секретного ключа локально (один раз)
+dotnet user-secrets set "Integration:ApiKey" "local-dev-key" --project src/Cli
 
+# Запуск у профілі Production зі зміненим терміном позики та шляхом даних
+$env:CROSSAPP_ENVIRONMENT = "Production"
+$env:CROSSAPP_Library__LoanDays = "30"
+$env:CROSSAPP_DATA_PATH = "custom_data"
+dotnet run --project src/Cli -- export
+
+# Очищення тимчасових змінних сесії (за потреби)
+Remove-Item Env:CROSSAPP_ENVIRONMENT, Env:CROSSAPP_Library__LoanDays, Env:CROSSAPP_DATA_PATH -ErrorAction SilentlyContinue

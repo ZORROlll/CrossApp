@@ -82,64 +82,90 @@ public sealed class LendingService(IBookStore store, INotificationSink? sink = n
         .ToList();
 
 // ==================== ЛАБОРАТОРНА РОБОТА 8: КРОК 4 ====================
+    // Оголошення асинхронного методу імпорту, який повертає кількість успішно доданих книг Task<int>
     public async Task<int> ImportAsync(
-        IBookImporter importer, 
-        string path, 
-        CancellationToken ct = default,
+        IBookImporter importer, // Параметр: інтерфейс імпортера, який читає файл певного формату (наприклад, JSON)
+        string path, // Параметр: повний шлях до файлу з даними на диску
+        CancellationToken ct = default, // Токен для можливості скасування тривалої асинхронної операції (за замовчуванням порожній)
         // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: IProgress (опціональний параметр зі значенням default) <<<
-        IProgress<int>? progress = null)
+        IProgress<int>? progress = null) // Опціональний об'єкт для надсилання звітів про прогрес (відсотки від 0 до 100)
     {
+        // Перевіряємо вхідний параметр importer: якщо передали null — одразу викидаємо виняток ArgumentNullException
         ArgumentNullException.ThrowIfNull(importer);
 
+        // Асинхронно вичитуємо весь список книг із файлу через переданий імпортер із підтримкою скасування через токен ct
         var items = await importer.LoadAsync(path, ct);
+        // Лічильник фактично збережених у сховище нових книг (початкове значення 0)
         var added = 0;
+        // Загальна кількість записів, отриманих із файлу (потрібна для обчислення відсотків)
         var total = items.Count;
 
+        // Звичайний цикл for для послідовної обробки кожного прочитаного запису
         for (int i = 0; i < total; i++)
         {
+            // Перевіряємо токен скасування на кожній ітерації: якщо надійшов сигнал переривання — кидаємо OperationCanceledException
             ct.ThrowIfCancellationRequested();
 
+            // Отримуємо поточну книгу з масиву/списку за індексом i
             var item = items[i];
 
-            // Ідемпотентність імпорту: якщо книга з таким ID вже є — пропускаємо
+            // Ідемпотентність імпорту: перевіряємо у сховищі, чи книга з таким ID вже існує
             if (_store.GetById(item.Id) is not null) 
             {
                 // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: Звітуємо прогрес навіть якщо елемент пропущено <<<
+                // Розраховуємо відсоток виконаної роботи: (поточний номер кроку * 100) / загальна кількість
                 int currentPercent = (int)((i + 1) * 100.0 / total);
+                // Якщо об'єкт progress був переданий (не null) — надсилаємо обчислений відсоток підписнику
                 progress?.Report(currentPercent);
+                // Пропускаємо поточну ітерацію циклу, щоб не дублювати вже наявну книгу
                 continue;
             }
 
+            // Додаємо нову валідну книгу в сховище даних
             _store.Add(item);
+            // Піднімаємо доменну подію Changed із типом BookAdded, сповіщаючи підписників про додавання книги
             OnChanged(item.Id, LendingChangeKind.BookAdded);
+            // Збільшуємо лічильник успішно імпортованих унікальних книг
             added++;
 
             // >>> ДОДАТКОВЕ ЗАВДАННЯ 3: Відправляємо поточний відсоток виконання (0..100%) <<<
+            // Розраховуємо прогрес після успішного збереження поточного елемента
             int percent = (int)((i + 1) * 100.0 / total);
+            // Надсилаємо новий відсоток підписнику (наприклад, у CLI для оновлення рядка прогресу)
             progress?.Report(percent);
         }
 
+        // Повертаємо загальну кількість фактично доданих у сховище книг
         return added;
     }
 
 // ==================== ДОДАТКОВЕ ЗАВДАННЯ 1: ПОТОКОВИЙ ІМПОРТ ====================
 // Додаткове завдання: імпорт через await foreach та IAsyncEnumerable
+    // Оголошення асинхронного методу потокового імпорту без завантаження всього файлу в пам'ять
     public async Task<int> ImportStreamAsync(IBookImporter importer, string path, CancellationToken ct = default)
     {
+        // Перевірка на null для об'єкта імпортера на вході в метод
         ArgumentNullException.ThrowIfNull(importer);
 
+        // Лічильник успішно збережених книг
         var added = 0;
 
+        // Цикл await foreach: асинхронно отримує елементи по одному з IAsyncEnumerable, а WithCancellation передає токен скасування в ітератор
         await foreach (var item in importer.StreamAsync(path, ct).WithCancellation(ct))
         {
+            // Якщо книга з таким ID уже є в базі/сховищі — пропускаємо її
             if (_store.GetById(item.Id) is not null)
                 continue;
 
+            // Зберігаємо нову книгу в оперативне сховище
             _store.Add(item);
+            // Генеруємо подію додавання книги для зовнішніх підписників
             OnChanged(item.Id, LendingChangeKind.BookAdded);
+            // Збільшуємо лічильник доданих книг
             added++;
         }
 
+        // Повертаємо підсумкову кількість імпортованих записів
         return added;
     }
 }
