@@ -45,4 +45,35 @@ public sealed class InMemoryBookStore(IEnumerable<BookCopy>? seed = null) : IBoo
         ArgumentNullException.ThrowIfNull(predicate);
         return _items.Values.Where(predicate).ToList();
     }
+
+    // Пагінація та пошук для API
+    public (IReadOnlyList<BookCopy> Items, int Total) GetPaged(int page, int pageSize, string? search, string? author = null)
+    {
+        IEnumerable<BookCopy> query = _items.Values;
+
+        if (!string.IsNullOrWhiteSpace(author))
+        {
+            var authorTerm = author.Trim();
+            query = query.Where(b => b.Author.Contains(authorTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(b =>
+                b.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                b.Author.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                b.Isbn.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var ordered = query.OrderBy(b => b.Id, StringComparer.OrdinalIgnoreCase).ToList();
+        var total = ordered.Count;
+
+        var items = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return (items, total);
+    }
 }

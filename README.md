@@ -102,6 +102,9 @@ Query Syntax (from ... group ... into ...) візуально нагадує д�
 Method Syntax природніший для повсякденної розробки на C#. Він вибудовує прозорий конвеєр викликів (pipeline), є компактнішим і підтримує методи, яких немає серед ключових слів Query Syntax (Take, DistinctBy, ThenBy).
 
 
+
+
+
 ## Конфігурація, профілі та Secrets (ЛР №9)
 
 Застосунок використовує `Microsoft.Extensions.Configuration` із каскадом джерел конфігурації (від найнижчого до найвищого пріоритету):
@@ -118,13 +121,13 @@ Method Syntax природніший для повсякденної розро�
 
 ### Таблиця ключів конфігурації
 
-| Ключ конфігурації | Змінна середовища | Значення за замовчуванням | Опис |
-| :--- | :--- | :--- | :--- |
-| `Storage:DataPath` | `CROSSAPP_Storage__DataPath` (або `CROSSAPP_DATA_PATH`) | `data` | Відносний або абсолютний шлях до каталогу збереження даних |
-| `Storage:FileName` | `CROSSAPP_Storage__FileName` | `books.json` | Ім'я JSON-файлу каталогу примірників бібліотеки |
-| `Logging:MinimumLevel` | `CROSSAPP_Logging__MinimumLevel` | `Information` (`Debug` у Dev) | Мінімальний рівень журналювання застосунку |
-| `Library:LoanDays` | `CROSSAPP_Library__LoanDays` | `14` | Стандартний термін видачі книги читачеві (у днях) |
-| `Integration:ApiKey` | `CROSSAPP_Integration__ApiKey` (або `user-secrets`) | *(не задано)* | Секретний ключ зовнішньої інтеграції (у консоль виводиться лише факт наявності та довжина) |
+| Ключ конфігурації      | Змінна середовища                                 | Значення за замовчуванням    | Опис                                                                                       |
+| :--------------------- | :------------------------------------------------ | :--------------------------- | :----------------------------------------------------------------------------------------- |
+| `Storage:DataPath`     | `CROSSAPP_Storage__DataPath` (`CROSSAPP_DATA_PATH`) | `data`                       | Відносний або абсолютний шлях до каталогу збереження даних                                 |
+| `Storage:FileName`     | `CROSSAPP_Storage__FileName`                      | `books.json`                 | Ім'я JSON-файлу каталогу примірників бібліотеки                                            |
+| `Logging:MinimumLevel` | `CROSSAPP_Logging__MinimumLevel`                  | `Information` (`Debug` у Dev)| Мінімальний рівень журналювання застосунку                                                 |
+| `Library:LoanDays`     | `CROSSAPP_Library__LoanDays`                      | `14`                         | Стандартний термін видачі книги читачеві (у днях)                                          |
+| `Integration:ApiKey`   | `CROSSAPP_Integration__ApiKey` / `user-secrets`   | *(не задано)*                | Секретний ключ зовнішньої інтеграції (у консоль виводиться лише факт наявності та довжина) |
 
 ### Приклади запуску зі змінними середовища та секретами
 
@@ -152,3 +155,18 @@ dotnet run --project src/Cli -- export
 
 # Очищення тимчасових змінних сесії (за потреби)
 Remove-Item Env:CROSSAPP_ENVIRONMENT, Env:CROSSAPP_Library__LoanDays, Env:CROSSAPP_DATA_PATH -ErrorAction SilentlyContinue
+
+
+
+
+
+## Web API (Minimal API)
+
+Сервер налаштовано на фіксований порт **`5080`** (`http://localhost:5080`).
+
+### Запуск сервера
+
+```powershell
+dotnet run --project src/Api
+# або явно вказати URL:
+dotnet run --project src/Api --urls http://localhost:5080

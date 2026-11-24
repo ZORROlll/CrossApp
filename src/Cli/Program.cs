@@ -15,28 +15,42 @@ using Core.Configuration;
 using Microsoft.Extensions.Configuration;
 Console.OutputEncoding = Encoding.UTF8;
 
+// Зчитуємо назву середовища (Development, Production тощо) зі змінної оточення; якщо вона не задана — ставимо "Development" за замовчуванням
 var envName = Environment.GetEnvironmentVariable("CROSSAPP_ENVIRONMENT") ?? "Development";
 
+// Ініціалізуємо будівельник конфігурації та задаємо пріоритет джерел (кожен наступний рівень перевизначає попередній)
 var config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
+    // Базові налаштування для всіх середовищ; файл обов'язковий (optional: false), зміни під час роботи не відстежуємо
     .AddJsonFile("appsettings.json", optional: false, reloadOnChange: false)
+    //Специфічні налаштування для поточного середовища (наприклад, appsettings.Development.json); файл необов'язковий
     .AddJsonFile($"appsettings.{envName}.json", optional: true)
+    //Локальні секрети розробника з профілю користувача Windows (UserSecretsId поточної збірки); працюють навіть у Production, якщо є
     .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
+    // 4. Змінні середовища ОС із префіксом "CROSSAPP_" (префікс обрізається, а "__" перетворюється на ":" для вкладених секцій)
     .AddEnvironmentVariables(prefix: "CROSSAPP_")
+    // 5. Аргументи командного рядка (найвищий пріоритет — перебивають усі попередні джерела)
     .AddCommandLine(args)
     .Build();
 
+// Прив'язуємо (мапимо) зібрану конфігурацію до типізованого об'єкта налаштувань AppOptions; якщо конфіг порожній — створюємо дефолтний екземпляр
 var options = config.Get<AppOptions>() ?? new AppOptions();
 
+// Перевіряємо застарілу (legacy) плоску змінну середовища CROSSAPP_DATA_PATH для зворотної сумісності
 var legacy = Environment.GetEnvironmentVariable("CROSSAPP_DATA_PATH");
+
+// Формуємо фінальні налаштування сховища: якщо задано стару змінну CROSSAPP_DATA_PATH — беремо її, інакше беремо шлях із options.Storage
 var storage = new StorageOptions
 {
     DataPath = string.IsNullOrWhiteSpace(legacy) ? options.Storage.DataPath : legacy,
     FileName = options.Storage.FileName
 };
 
+// Обчислюємо повний абсолютний шлях до файлу даних відносно базової директорії програми
 var fullDataPath = storage.ResolveFullPath(AppContext.BaseDirectory);
-var apiKey = config["Integration:ApiKey"];
+
+// Зчитуємо секретний ключ інтеграції за ключем "Integration:ApiKey" (із UserSecrets, змінних середовища або CLI-аргументів)
+var apiKey = config["Integration:ApiKey"]; // пункт 6
 
 Console.WriteLine($"Файл даних: {fullDataPath}");
 Console.WriteLine(apiKey is null ? "ApiKey: не заданий" : $"ApiKey: присутній, довжина {apiKey.Length}");
@@ -711,7 +725,7 @@ static string? customFilePathFromArgs(string[] arguments)
 } 
 // ==================== ЛАБОРАТОРНА РОБОТА №9 ====================
 Console.WriteLine("\n==============================================================================");
-Console.WriteLine("ЛАБОРАТОРНА РОБОТА №9: ШЛЯХИ, JSON, КОНФІГУРАЦІЯ, SECRETS");
+Console.WriteLine("ШЛЯХИ, JSON, КОНФІГУРАЦІЯ, SECRETS");
 Console.WriteLine("==============================================================================");
 Console.WriteLine($"Профіль середовища (EnvironmentName): {options.EnvironmentName}");
 Console.WriteLine($"Рівень логування (Logging:MinimumLevel): {options.Logging.MinimumLevel}");

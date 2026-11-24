@@ -79,4 +79,8 @@ public sealed class CachingBookStore : IBookStore // Клас-декоратор
         ArgumentNullException.ThrowIfNull(predicate);
         return _inner.Find(predicate);
     }
+
+    public (IReadOnlyList<BookCopy> Items, int Total) GetPaged(int page, int pageSize, string? search, string? author = null) =>
+    _inner.GetPaged(page, pageSize, search, author);
+    
 }

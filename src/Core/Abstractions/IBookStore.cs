@@ -1,6 +1,7 @@
 namespace Core.Abstractions;
 
 using Core.Domain;
+
 //інтерфейс IBookStore описує контракт взаємодії зі сховищем книг
 public interface IBookStore
 {
@@ -16,4 +17,7 @@ public interface IBookStore
 
     // (д2)
     IReadOnlyList<BookCopy> Find(Func<BookCopy, bool> predicate); //виконує гнучкий пошук книг за довільною умовою за допомогою делегата
+
+    // Пагінація та пошук для API
+    (IReadOnlyList<BookCopy> Items, int Total) GetPaged(int page, int pageSize, string? search, string? author = null);
 }

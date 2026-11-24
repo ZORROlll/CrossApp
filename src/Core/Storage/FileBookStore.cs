@@ -12,8 +12,8 @@ public sealed class FileBookStore : IBookStore
     // [Крок 5.2 - ЛР №9] Налаштовано серіалізацію: camelCase для властивостей та UnsafeRelaxedJsonEscaping для читабельної кирилиці
     private static readonly JsonSerializerOptions Options = new()
     {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true, //відступ
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase, // Перетворює назви властивостей C# із PascalCase (наприклад, InventoryNumber) у camelCase (inventoryNumber) у JSON
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
 
@@ -23,15 +23,19 @@ public sealed class FileBookStore : IBookStore
     // Повний нормалізований шлях до поточного файлу збереження
     private string _path;
 
-    // Прапорець для запобігання повторному зчитуванню з диска
+    // Прапоць для запобігання повторному зчитуванню з диска
     private bool _loaded;
 
-    // [Крок 5.3 - ЛР №9] Змінено ім'я файлу за замовчуванням на books.json відповідно до конфігурації
-    public FileBookStore(string path = "books.json")
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        _path = Path.GetFullPath(path);
-    }
+    // [Крок 5.3] Змінено ім'я файлу за замовчуванням на books.json відповідно до конфігурації
+   // Конструктор файлового сховища; приймає шлях до JSON-файлу (якщо не передано — за замовчуванням береться "books.json")
+public FileBookStore(string path = "books.json")
+{
+    // Перевіряємо, що шлях не є null, порожнім рядком або набором пробілів; інакше одразу кидаємо ArgumentException
+    ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+    // Перетворюємо переданий (можливо, відносний) шлях у повний абсолютний шлях на диску та зберігаємо в поле _path
+    _path = Path.GetFullPath(path);
+}
 
     // Властивість для перегляду або динамічної зміни шляху через прапорець
     public string FilePath
@@ -64,7 +68,7 @@ public sealed class FileBookStore : IBookStore
     {
         if (_loaded) return;
 
-        // [Крок 5.4 - ЛР №9] Якщо файл даних ще не створений — просто позначаємо сховище як завантажене без помилок
+        // [Крок 5.4 - ЛР №9] Якщо файл даних ще не створений — просто позначаємо сховище як завантане без помилок
         if (!File.Exists(_path))
         {
             _loaded = true;
@@ -98,17 +102,19 @@ public sealed class FileBookStore : IBookStore
     {
         // Створення каталогу (якщо ще не існує) перед записом файлу
         var directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrEmpty(directory))
+        if (!string.IsNullOrEmpty(directory)) //Перевіряємо, що шлях до папки не порожній і не null (наприклад, якщо передано лише ім'я файлу без каталогу), перед тим як створювати директорію
         {
-            Directory.CreateDirectory(directory);
+            Directory.CreateDirectory(directory); // Створює всі відсутні каталоги по вказаному шляху (якщо папка вже існує — нічого не робить і не викидає помилку)
         }
 
-        var dtos = _cache.Values.Select(b => b.ToDto()).ToList();
+        var dtos = _cache.Values.Select(b => b.ToDto()).ToList(); // Конвертуємо всі доменні об'єкти книг із кешу у плоскі DTO-об'єкти для подальшої серіалізації в JSON
 
         // [Крок 5.7 - ЛР №9] Атомарний запис у JSON: спочатку у тимчасовий .tmp файл, потім заміна основного через File.Move
+        //операція заміни файлу відбувається як одна неподільна 
+        // миттєва дія без проміжного стану, коли файл відкритий і пустий або записаний лише наполовину.
         var tmp = _path + ".tmp";
-        File.WriteAllText(tmp, JsonSerializer.Serialize(dtos, Options));
-        File.Move(tmp, _path, overwrite: true);
+        File.WriteAllText(tmp, JsonSerializer.Serialize(dtos, Options)); //правила форматування
+        File.Move(tmp, _path, overwrite: true); //дозвіл на перезапис
     }
 
     public IReadOnlyList<BookCopy> List()
@@ -165,5 +171,38 @@ public sealed class FileBookStore : IBookStore
         ArgumentNullException.ThrowIfNull(predicate);
         EnsureLoaded();
         return _cache.Values.Where(predicate).ToList();
+    }
+
+    // Пагінація та пошук для API
+    public (IReadOnlyList<BookCopy> Items, int Total) GetPaged(int page, int pageSize, string? search, string? author = null)
+    {
+        EnsureLoaded();
+        IEnumerable<BookCopy> query = _cache.Values;
+
+        if (!string.IsNullOrWhiteSpace(author))
+        {
+            var authorTerm = author.Trim();
+            query = query.Where(b => b.Author is not null &&
+                                     b.Author.Contains(authorTerm, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim();
+            query = query.Where(b =>
+                b.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                (b.Author is not null && b.Author.Contains(term, StringComparison.OrdinalIgnoreCase)) ||
+                b.Isbn.Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        var ordered = query.OrderBy(b => b.Id, StringComparer.OrdinalIgnoreCase).ToList();
+        var total = ordered.Count;
+
+        var items = ordered
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return (items, total);
     }
 }

@@ -1,0 +1,70 @@
+@Api_HostAddress = http://localhost:5080
+
+### 0. Перевірка стану сервісу (200 OK)
+GET {{Api_HostAddress}}/health
+Accept: application/json
+
+### 1. Отримати початковий список книг (200 OK)
+GET {{Api_HostAddress}}/api/books
+Accept: application/json
+
+### 2. Пошук книг за автором (200 OK)
+GET {{Api_HostAddress}}/api/books?author=Шевченко
+Accept: application/json
+
+### 3. CREATE: Створити нову книгу (201 Created)
+# @name createBook
+POST {{Api_HostAddress}}/api/books
+Content-Type: application/json
+
+{
+  "isbn": "978-617-679-145-4",
+  "title": "Місто",
+  "year": 1928,
+  "author": "Валерʼян Підмогильний"
+}
+
+### 4. READ: Отримати щойно створену книгу за її ID (200 OK)
+@createdId = {{createBook.response.body.$.id}}
+GET {{Api_HostAddress}}/api/books/{{createdId}}
+Accept: application/json
+
+### 5. UPDATE: Оновити створену книгу (200 OK)
+PUT {{Api_HostAddress}}/api/books/{{createdId}}
+Content-Type: application/json
+
+{
+  "isbn": "978-617-679-145-4",
+  "title": "Місто (Оновлене видання)",
+  "year": 1929,
+  "author": "Валерʼян Підмогильний"
+}
+
+### 6. DELETE: Видалити створену книгу (204 No Content)
+DELETE {{Api_HostAddress}}/api/books/{{createdId}}
+
+### 7. READ після DELETE: Перевірка, що книга видалена (має повернути 404 Not Found)
+GET {{Api_HostAddress}}/api/books/{{createdId}}
+Accept: application/json
+
+### 8. Перевірка валідації: невалідний запит (має повернути 400 Bad Request / ValidationProblemDetails)
+POST {{Api_HostAddress}}/api/books
+Content-Type: application/json
+
+{
+  "isbn": "",
+  "title": "",
+  "year": -10
+}
+
+### 9. Пагінація за замовчуванням (200 OK -> { items, total })
+GET {{Api_HostAddress}}/api/books?page=1&pageSize=20
+Accept: application/json
+
+### 10. Пагінація + пошук за рядком (200 OK -> { items, total })
+GET {{Api_HostAddress}}/api/books?page=1&pageSize=1&search=Шевченко
+Accept: application/json
+
+### 11. Валідація параметрів пагінації (400 Bad Request)
+GET {{Api_HostAddress}}/api/books?page=0&pageSize=200
+Accept: application/json
